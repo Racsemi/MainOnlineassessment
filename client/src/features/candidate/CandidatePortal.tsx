@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ShieldAlert, Clock, Loader2, Camera, AlertTriangle, Maximize, Check, Play, Terminal } from 'lucide-react';
+import { ShieldAlert, Clock, Loader2, Camera, AlertTriangle, Maximize, Check, Play, Terminal, Calculator } from 'lucide-react';
 import Editor from '@monaco-editor/react';
 import api from '../../lib/axios';
 import CalculatorWidget from './CalculatorWidget';
@@ -18,6 +18,7 @@ const CandidatePortal = () => {
   const [assessment, setAssessment] = useState<any>(null);
   const [questions, setQuestions] = useState<any[]>([]);
   const [candidateInfo, setCandidateInfo] = useState<{ name: string; email: string } | null>(null);
+  const [showCalculator, setShowCalculator] = useState(false);
   
   // Proctoring States
   const [termsAgreed, setTermsAgreed] = useState(false);
@@ -650,7 +651,21 @@ const CandidatePortal = () => {
           <h1 className="text-base font-bold text-dark truncate pr-4">{assessment?.title}</h1>
         </div>
         
-        <div className="flex items-center space-x-4">
+        <div className="flex items-center space-x-3">
+          <button 
+            type="button" 
+            onClick={() => setShowCalculator(prev => !prev)}
+            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${
+              showCalculator 
+                ? 'bg-primary text-white border-primary shadow-sm' 
+                : 'bg-gray-100 hover:bg-gray-200 text-gray-700 border-gray-300'
+            }`}
+            title="Toggle Calculator"
+          >
+            <Calculator size={14} className={showCalculator ? 'text-white' : 'text-primary'} />
+            <span>Calculator</span>
+          </button>
+
           <div className="flex items-center text-warning font-mono bg-warning/10 px-3 py-1.5 rounded-lg font-bold text-base">
             <Clock size={16} className="mr-2" />
             {timeLeft}
@@ -955,7 +970,7 @@ const CandidatePortal = () => {
           </div>
         )}
       </div>
-      {sessionInfo?.settings?.features?.calculator && <CalculatorWidget />}
+      <CalculatorWidget isOpen={showCalculator} onClose={() => setShowCalculator(false)} />
     </div>
   );
 };

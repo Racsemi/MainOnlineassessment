@@ -1,8 +1,20 @@
-﻿import React, { useState } from 'react';
+import React, { useState } from 'react';
 import { Calculator as CalcIcon, X } from 'lucide-react';
 
-const CalculatorWidget = () => {
-  const [isOpen, setIsOpen] = useState(false);
+interface CalculatorWidgetProps {
+  isOpen?: boolean;
+  onClose?: () => void;
+}
+
+const CalculatorWidget: React.FC<CalculatorWidgetProps> = ({ isOpen: controlledIsOpen, onClose }) => {
+  const [internalOpen, setInternalOpen] = useState(false);
+  const isControlled = controlledIsOpen !== undefined;
+  const isOpen = isControlled ? controlledIsOpen : internalOpen;
+
+  const setIsOpen = (open: boolean) => {
+    if (!open && onClose) onClose();
+    if (!isControlled) setInternalOpen(open);
+  };
   const [display, setDisplay] = useState('0');
   const [equation, setEquation] = useState('');
 
@@ -36,19 +48,21 @@ const CalculatorWidget = () => {
   };
 
   if (!isOpen) {
+    if (isControlled) return null;
     return (
       <button 
         onClick={() => setIsOpen(true)}
-        className="fixed bottom-6 right-6 bg-primary text-white p-4 rounded-full shadow-xl hover:bg-blue-700 transition-colors z-50 flex items-center justify-center"
+        className="fixed top-3 right-64 bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded-lg border border-gray-300 shadow-sm transition-colors z-40 flex items-center space-x-1.5 text-xs font-bold"
         title="Open Calculator"
       >
-        <CalcIcon size={24} />
+        <CalcIcon size={14} className="text-primary" />
+        <span>Calculator</span>
       </button>
     );
   }
 
   return (
-    <div className="fixed bottom-6 right-6 bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl z-50 w-64 overflow-hidden flex flex-col">
+    <div className="fixed top-16 right-6 bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl z-50 w-64 overflow-hidden flex flex-col">
       <div className="bg-gray-800 p-3 flex justify-between items-center border-b border-gray-700">
         <div className="flex items-center text-white space-x-2">
           <CalcIcon size={16} />

@@ -71,9 +71,8 @@ const Login = () => {
           
           {/* Mobile brand */}
           <div className="lg:hidden text-center mb-8">
-            <div className="w-12 h-12 rounded-xl mx-auto mb-3 flex items-center justify-center"
-              style={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)' }}>
-              <Zap size={22} className="text-white" />
+            <div className="w-14 h-14 mx-auto mb-3 flex items-center justify-center">
+              <img src="/logo2.png" alt="Racsemi Logo" className="w-full h-full object-contain" />
             </div>
             <h1 className="text-2xl font-bold text-dark">RACSEMI</h1>
           </div>
