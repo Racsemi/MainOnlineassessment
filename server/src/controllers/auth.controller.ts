@@ -48,6 +48,7 @@ export const login = async (req: Request, res: Response) => {
     });
 
     res.json({
+      token,
       user: {
         id: user.id,
         email: user.email,

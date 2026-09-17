@@ -29,6 +29,7 @@ const AdminLayout = () => {
     try {
       await api.post('/auth/logout');
     } catch (e) {}
+    localStorage.removeItem('token');
     navigate('/login');
   };
 
