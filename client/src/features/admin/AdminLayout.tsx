@@ -55,8 +55,8 @@ const AdminLayout = () => {
         {/* Brand */}
         <div className="px-6 py-6 border-b border-white/5">
           <div className="flex items-center space-x-3">
-            <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)' }}>
-              <Zap size={18} className="text-white" />
+            <div className="w-9 h-9 flex items-center justify-center flex-shrink-0">
+              <img src="/logo2.png" alt="Racsemi Logo" className="w-full h-full object-contain" />
             </div>
             <div>
               <h1 className="text-base font-bold text-white tracking-tight">RACSEMI</h1>

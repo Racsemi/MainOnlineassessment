@@ -38,9 +38,8 @@ const Login = () => {
           style={{ background: 'radial-gradient(circle, #8b5cf6, transparent)' }} />
 
         <div className="relative z-10 text-center max-w-md">
-          <div className="w-16 h-16 rounded-2xl mx-auto mb-6 flex items-center justify-center"
-            style={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', boxShadow: '0 0 40px rgba(99,102,241,0.4)' }}>
-            <Zap size={28} className="text-white" />
+          <div className="w-16 h-16 mx-auto mb-6 flex items-center justify-center">
+            <img src="/logo2.png" alt="Racsemi Logo" className="w-full h-full object-contain drop-shadow-xl" />
           </div>
           <h1 className="text-4xl font-bold text-white mb-3 tracking-tight">RACSEMI</h1>
           <p className="text-slate-400 text-lg leading-relaxed">
