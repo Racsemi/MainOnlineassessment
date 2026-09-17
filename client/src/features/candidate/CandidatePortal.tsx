@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { ShieldAlert, Clock, Loader2, Camera, AlertTriangle, Maximize, Check, Play, Terminal } from 'lucide-react';
 import Editor from '@monaco-editor/react';
 import api from '../../lib/axios';
+import CalculatorWidget from './CalculatorWidget';
 
 const CandidatePortal = () => {
   const { token } = useParams();
@@ -953,6 +954,7 @@ const CandidatePortal = () => {
           </div>
         )}
       </div>
+      {sessionInfo?.settings?.features?.calculator && <CalculatorWidget />}
     </div>
   );
 };
