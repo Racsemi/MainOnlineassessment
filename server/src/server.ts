@@ -11,14 +11,49 @@ dotenv.config({ path: path.join(__dirname, '../../.env') });
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Middleware
-app.use(helmet());
-app.use(cors({
-  origin: function(origin, callback) {
-    callback(null, origin || true);
+// --- CORS ---
+// Origins are driven by the ALLOWED_ORIGINS env var (comma-separated, no trailing
+// slash), so new front-ends can be added in Render without a code change.
+// CLIENT_URL is kept in the list for backwards compatibility: it is still used
+// elsewhere to build candidate assessment links.
+const allowedOrigins = [
+  ...(process.env.ALLOWED_ORIGINS || '').split(','),
+  process.env.CLIENT_URL || '',
+]
+  .map((o) => o.trim().replace(/\/$/, ''))
+  .filter(Boolean);
+
+// NOTE: we do NOT reflect arbitrary origins. Auth uses a `token` cookie with
+// sameSite:'none' + secure:true, so reflecting any origin alongside
+// credentials:true would let any website make authenticated requests.
+const corsOptions: cors.CorsOptions = {
+  origin(origin, callback) {
+    // Same-origin / server-to-server requests (curl, health checks) send no Origin.
+    if (!origin) return callback(null, true);
+
+    if (allowedOrigins.includes(origin.replace(/\/$/, ''))) {
+      return callback(null, true);
+    }
+
+    console.warn(`[CORS] Blocked origin: ${origin}`);
+    return callback(new Error(`Origin ${origin} is not allowed by CORS`));
   },
   credentials: true,
-}));
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+};
+
+// Middleware
+app.use(helmet());
+app.use(cors(corsOptions));
+// Answer preflight for every route before anything else can reject it.
+app.options('*', cors(corsOptions));
+
+if (allowedOrigins.length === 0) {
+  console.warn('[CORS] No ALLOWED_ORIGINS or CLIENT_URL set — all browser origins will be blocked.');
+} else {
+  console.log(`[CORS] Allowed origins: ${allowedOrigins.join(', ')}`);
+}
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(cookieParser());

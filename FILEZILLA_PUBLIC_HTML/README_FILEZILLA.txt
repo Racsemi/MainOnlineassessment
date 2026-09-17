@@ -43,5 +43,5 @@ Sometimes Windows/FileZilla uploads files with the wrong Linux permissions. To f
 ================================================================================
 Note: Your backend is connected!
 The frontend has been compiled to connect to your Render backend API:
-https://onlineassessment-hjjb.onrender.com/api
+https://racsemi-backend.onrender.com/api
 ================================================================================
