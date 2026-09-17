@@ -160,9 +160,12 @@ const PublicRegistration = () => {
         </div>
         
         <div className="bg-white/95 backdrop-blur-md max-w-4xl w-full rounded-2xl shadow-2xl overflow-hidden border border-white/10 flex flex-col z-10 animate-fade-in-up max-h-[90vh]">
-          <div className="px-8 py-6 border-b border-gray-200 shrink-0" style={{ background: 'linear-gradient(135deg, rgba(79,70,229,0.1), rgba(139,92,246,0.05))' }}>
-            <h1 className="text-2xl font-bold text-dark">{assessment.title}</h1>
-            <p className="text-gray-600 mt-1">Assessment Rules and Instructions</p>
+          <div className="px-8 py-6 border-b border-gray-200 shrink-0 flex items-center" style={{ background: 'linear-gradient(135deg, rgba(79,70,229,0.1), rgba(139,92,246,0.05))' }}>
+            <img src="/logo2.png" alt="Racsemi Logo" className="h-10 mr-4 object-contain" />
+            <div>
+              <h1 className="text-2xl font-bold text-dark">{assessment.title}</h1>
+              <p className="text-gray-600 mt-1">Assessment Rules and Instructions</p>
+            </div>
           </div>
           
           <div className="p-8 flex-1 overflow-y-auto space-y-8">

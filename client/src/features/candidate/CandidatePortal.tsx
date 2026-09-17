@@ -645,7 +645,8 @@ const CandidatePortal = () => {
 
       {/* Top Header */}
       <header className="bg-white border-b border-gray-200 px-4 py-2 flex justify-between items-center sticky top-0 z-10 shadow-sm h-14">
-        <div className="flex-1">
+        <div className="flex-1 flex items-center">
+          <img src="/logo2.png" alt="Racsemi Logo" className="h-8 mr-4 object-contain" />
           <h1 className="text-base font-bold text-dark truncate pr-4">{assessment?.title}</h1>
         </div>
         
