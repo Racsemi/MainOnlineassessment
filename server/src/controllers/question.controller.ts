@@ -30,7 +30,7 @@ export const createQuestion = async (req: Request, res: Response) => {
     
     const question = await prisma.question.create({
       data: {
-        sectionId,
+        sectionId: sectionId || undefined,
         text,
         type,
         category: category || 'General',
@@ -58,7 +58,7 @@ export const createCodingQuestion = async (req: Request, res: Response) => {
     
     const codingQuestion = await prisma.codingQuestion.create({
       data: {
-        sectionId,
+        sectionId: sectionId || undefined,
         title,
         description,
         inputFormat,
