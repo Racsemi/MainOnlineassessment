@@ -1,0 +1,11 @@
+﻿type,text,marks,negativeMarks,difficulty,category,option_A,option_B,option_C,option_D,correct_answer
+SINGLE_CHOICE,What is the time complexity of binary search?,2,0.5,Medium,DSA,O(n),O(log n),O(n log n),O(1),B
+SINGLE_CHOICE,Which keyword is used to declare a constant in JavaScript?,1,0,Easy,Web,var,let,const,function,C
+MULTIPLE_CHOICE,"Which of the following are JavaScript data types? (Select all that apply)",3,0,Medium,Web,String,Integer,Boolean,undefined,"A;C;D"
+SINGLE_CHOICE,What does HTTP stand for?,1,0.25,Easy,Networking,HyperText Transfer Protocol,HyperText Transfer Program,HyperTerminal Transfer Protocol,High Transfer Text Protocol,A
+SINGLE_CHOICE,Which sorting algorithm has the best average-case time complexity?,2,0.5,Hard,DSA,Bubble Sort,Insertion Sort,Merge Sort,Selection Sort,C
+SINGLE_LINE,What is the output of: print(2 ** 10) in Python?,1,0,Easy,Programming,,,,,1024
+NUMERIC,What is the result of 15 mod 4?,1,0,Easy,Mathematics,,,,,3
+TRUE_FALSE,Python is a compiled language.,1,0,Easy,Programming,,,,,False
+PARAGRAPH,"Explain the difference between stack and queue data structures.",3,0,Medium,DSA,,,,,
+SINGLE_CHOICE,Which HTTP status code indicates a Not Found error?,1,0,Easy,Networking,200,301,404,500,C

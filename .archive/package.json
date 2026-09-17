@@ -1,0 +1,27 @@
+{
+  "name": "racsemi-assess-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "RACSEMI Assess - Production Online Software Development Assessment Platform",
+  "workspaces": [
+    "packages/*",
+    "apps/*",
+    "services/*"
+  ],
+  "scripts": {
+    "dev:all": "concurrently \"npm run dev --workspace=@racsemi/api\" \"npm run dev --workspace=@racsemi/web\" \"npm run dev --workspace=@racsemi/worker\"",
+    "dev:api": "npm run dev --workspace=@racsemi/api",
+    "dev:web": "npm run dev --workspace=@racsemi/web",
+    "dev:runner": "npm run dev --workspace=@racsemi/code-runner",
+    "build": "npm run build --workspaces --if-present",
+    "db:generate": "npm run generate --workspace=@racsemi/database",
+    "db:migrate": "npm run migrate --workspace=@racsemi/database",
+    "db:seed": "npm run seed --workspace=@racsemi/database",
+    "test": "npm run test --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "typescript": "^5.4.5"
+  }
+}

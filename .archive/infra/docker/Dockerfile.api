@@ -1,0 +1,25 @@
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+# Copy root package and workspace packages
+COPY package.json package-lock.json* ./
+COPY packages/ ./packages/
+COPY services/ ./services/
+COPY apps/api/ ./apps/api/
+
+RUN npm install
+RUN npm run generate --workspace=@racsemi/database
+RUN npm run build --workspace=@racsemi/shared
+RUN npm run build --workspace=@racsemi/database
+RUN npm run build --workspace=@racsemi/code-runner
+RUN npm run build --workspace=@racsemi/api
+
+FROM node:20-alpine AS runner
+WORKDIR /app
+ENV NODE_ENV=production
+
+COPY --from=builder /app ./
+
+EXPOSE 4000
+CMD ["npm", "run", "start", "--workspace=@racsemi/api"]

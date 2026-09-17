@@ -1,0 +1,33 @@
+{
+  "name": "racsemi-assess",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "client",
+    "server"
+  ],
+  "scripts": {
+    "dev:client": "npm run dev --workspace=client",
+    "dev:server": "npm run dev --workspace=server",
+    "dev": "concurrently \"npm run dev:client\" \"npm run dev:server\"",
+    "build": "npm run build --workspaces",
+    "build:render": "npm run build --workspace=server && npx prisma generate && npx prisma db push --accept-data-loss",
+    "build:cpanel": "npm run build:ftp && npm run build --workspace=server",
+    "build:ftp": "npm run build --workspace=client && powershell -Command \"Copy-Item -Recurse -Force client/dist/* FILEZILLA_PUBLIC_HTML/ -ErrorAction SilentlyContinue; Copy-Item -Force client/dist/.htaccess FILEZILLA_PUBLIC_HTML/.htaccess -ErrorAction SilentlyContinue\"",
+    "start:server": "npm run start --workspace=server",
+    "db:generate": "npx prisma generate",
+    "db:push": "npx prisma db push"
+  },
+  "devDependencies": {
+    "@types/multer": "^2.2.0",
+    "concurrently": "^10.0.5",
+    "prisma": "^5.22.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.22.0",
+    "csv-parse": "^7.0.2",
+    "multer": "^2.3.0"
+  }
+}

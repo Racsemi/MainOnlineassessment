@@ -1,0 +1,483 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Organization {
+  id          String       @id @default(uuid())
+  name        String
+  slug        String       @unique
+  logoUrl     String?
+  settings    String?      // JSON config for branding/retention
+  users       User[]
+  assessments Assessment[]
+  questions   Question[]
+  candidates  Candidate[]
+  auditLogs   AuditLog[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@index([slug])
+}
+
+model User {
+  id               String            @id @default(uuid())
+  email            String            @unique
+  passwordHash     String
+  firstName        String
+  lastName         String
+  role             String            @default("RECRUITER") // SUPER_ADMIN, ADMIN, RECRUITER, INTERVIEWER
+  organizationId   String
+  organization     Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  isActive         Boolean           @default(true)
+  createdAssessments Assessment[]    @relation("AssessmentCreator")
+  createdQuestions   Question[]      @relation("QuestionCreator")
+  interviewerNotes InterviewerNote[]
+  auditLogs        AuditLog[]
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  @@index([organizationId])
+  @@index([email])
+}
+
+model Assessment {
+  id                    String                @id @default(uuid())
+  organizationId        String
+  organization          Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  title                 String
+  slug                  String
+  description           String?
+  role                  String?
+  difficulty            String                @default("MEDIUM") // EASY, MEDIUM, HARD
+  timingMode            String                @default("TOTAL_ASSESSMENT_TIMER") // TOTAL_ASSESSMENT_TIMER, SECTION_TIMER
+  durationMinutes       Int                   @default(100)
+  totalMarks            Float                 @default(100)
+  passingPercentage     Float                 @default(60)
+  maxAttempts           Int                   @default(1)
+  randomizeQuestions    Boolean               @default(false)
+  randomizeOptions      Boolean               @default(false)
+  showResultToCandidate Boolean               @default(false)
+  integrityMonitoring   Boolean               @default(true)
+  proctoringMode        String                @default("BASIC") // OFF, BASIC, WEBCAM, SCREEN, ADVANCED
+  instructions          String?
+  allowedLanguages      String?               // JSON array of enabled language IDs
+  status                String                @default("DRAFT") // DRAFT, PUBLISHED, SCHEDULED, ACTIVE, CLOSED, ARCHIVED
+  startWindow           DateTime?
+  endWindow             DateTime?
+  timezone              String                @default("Asia/Kolkata")
+  createdById           String
+  createdBy             User                  @relation("AssessmentCreator", fields: [createdById], references: [id])
+  sections              AssessmentSection[]
+  assessmentQuestions   AssessmentQuestion[]
+  invitations           Invitation[]
+  candidateSessions     CandidateSession[]
+  interviewerNotes      InterviewerNote[]
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+
+  @@unique([organizationId, slug])
+  @@index([organizationId])
+  @@index([status])
+}
+
+model AssessmentSection {
+  id                  String               @id @default(uuid())
+  assessmentId        String
+  assessment          Assessment           @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  title               String
+  description         String?
+  orderIndex          Int                  @default(0)
+  durationMinutes     Int                  @default(20)
+  marks               Float                @default(20)
+  questionCount       Int                  @default(0)
+  isMandatory         Boolean              @default(true)
+  assessmentQuestions AssessmentQuestion[]
+  sectionResults      SectionResult[]
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+
+  @@index([assessmentId])
+}
+
+model Question {
+  id                  String               @id @default(uuid())
+  organizationId      String
+  organization        Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  title               String
+  problemStatement    String
+  questionType        String               @default("MCQ_SINGLE") // MCQ_SINGLE, MCQ_MULTIPLE, CODING, TRUE_FALSE, FILL_BLANK, SQL
+  difficulty          String               @default("EASY") // EASY, MEDIUM, HARD
+  category            String               @default("General")
+  tags                String?              // Comma-separated or JSON string
+  score               Float                @default(2)
+  negativeScore       Float                @default(0)
+  explanation         String?
+  currentVersion      Int                  @default(1)
+  isArchived          Boolean              @default(false)
+  createdById         String
+  createdBy           User                 @relation("QuestionCreator", fields: [createdById], references: [id])
+  versions            QuestionVersion[]
+  options             QuestionOption[]
+  codingDetails       CodingQuestion?
+  assessmentQuestions AssessmentQuestion[]
+  candidateAnswers    CandidateAnswer[]
+  codingSubmissions   CodingSubmission[]
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+
+  @@index([organizationId])
+  @@index([category])
+  @@index([questionType])
+  @@index([difficulty])
+}
+
+model QuestionVersion {
+  id          String   @id @default(uuid())
+  questionId  String
+  question    Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  version     Int
+  data        String   // JSON snapshot of question state at version
+  createdById String
+  createdAt   DateTime @default(now())
+
+  @@unique([questionId, version])
+  @@index([questionId])
+}
+
+model QuestionOption {
+  id          String   @id @default(uuid())
+  questionId  String
+  question    Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  optionKey   String   // 'A', 'B', 'C', 'D', 'E'
+  content     String
+  isCorrect   Boolean  @default(false)
+  explanation String?
+  orderIndex  Int      @default(0)
+
+  @@index([questionId])
+}
+
+model CodingQuestion {
+  id               String     @id @default(uuid())
+  questionId       String     @unique
+  question         Question   @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  inputFormat      String?
+  outputFormat     String?
+  constraints      String?
+  sampleCasesJson  String?    // JSON array of sample input, output, explanation
+  starterCodeJson  String?    // JSON map of languageId -> starter code
+  memoryLimitMb    Int        @default(256)
+  timeLimitMs      Int        @default(5000)
+  allowedLanguages String?    // JSON array of language IDs
+  testCases        TestCase[]
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+}
+
+model TestCase {
+  id               String         @id @default(uuid())
+  codingQuestionId String
+  codingQuestion   CodingQuestion @relation(fields: [codingQuestionId], references: [id], onDelete: Cascade)
+  input            String
+  expectedOutput   String
+  isHidden         Boolean        @default(true)
+  scoreWeight      Float          @default(1.0)
+  explanation      String?
+  orderIndex       Int            @default(0)
+
+  @@index([codingQuestionId])
+  @@index([isHidden])
+}
+
+model AssessmentQuestion {
+  id           String            @id @default(uuid())
+  assessmentId String
+  assessment   Assessment        @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  sectionId    String
+  section      AssessmentSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  questionId   String
+  question     Question          @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  orderIndex   Int               @default(0)
+  customScore  Float?
+
+  @@unique([assessmentId, sectionId, questionId])
+  @@index([assessmentId])
+  @@index([sectionId])
+}
+
+model Candidate {
+  id                  String             @id @default(uuid())
+  organizationId      String
+  organization        Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name                String
+  email               String
+  phone               String?
+  candidateIdentifier String?
+  tags                String?
+  invitations         Invitation[]
+  candidateSessions   CandidateSession[]
+  interviewerNotes    InterviewerNote[]
+  emailLogs           EmailLog[]
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+
+  @@unique([organizationId, email])
+  @@index([organizationId])
+  @@index([email])
+}
+
+model Invitation {
+  id               String                    @id @default(uuid())
+  assessmentId     String
+  assessment       Assessment                @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  candidateId      String
+  candidate        Candidate                 @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  token            String                    @unique
+  expiresAt        DateTime
+  status           String                    @default("INVITED") // INVITED, OPENED, STARTED, IN_PROGRESS, SUBMITTED, AUTO_SUBMITTED, EXPIRED, REVOKED, DISQUALIFIED
+  emailSentAt      DateTime?
+  reminderSentAt   DateTime?
+  candidateSession CandidateSession?
+  emailLogs        EmailLog[]
+  createdAt        DateTime                  @default(now())
+  updatedAt        DateTime                  @updatedAt
+
+  @@unique([assessmentId, candidateId])
+  @@index([token])
+  @@index([assessmentId])
+  @@index([candidateId])
+  @@index([status])
+}
+
+model CandidateSession {
+  id                      String                    @id @default(uuid())
+  invitationId            String                    @unique
+  invitation              Invitation                @relation(fields: [invitationId], references: [id], onDelete: Cascade)
+  candidateId             String
+  candidate               Candidate                 @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  assessmentId            String
+  assessment              Assessment                @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  status                  String                    @default("NOT_STARTED") // NOT_STARTED, IN_PROGRESS, SUBMITTED, AUTO_SUBMITTED, EXPIRED, DISQUALIFIED
+  startedAt               DateTime?
+  submittedAt             DateTime?
+  expiresAt               DateTime?
+  remainingSecondsSnapshot Int?
+  currentSectionIndex     Int                       @default(0)
+  currentQuestionIndex    Int                       @default(0)
+  ipAddress               String?
+  userAgent               String?
+  deviceFingerprint       String?
+  systemCheckSummary      String?                   // JSON summary of device / check results
+  snapshotJson            String?                   // Immutable snapshot of assessment at session start
+  candidateAnswers        CandidateAnswer[]
+  codingSubmissions       CodingSubmission[]
+  integrityEvents         IntegrityEvent[]
+  assessmentResult        AssessmentResult?
+  candidateReport         CandidateReport?
+  createdAt               DateTime                  @default(now())
+  updatedAt               DateTime                  @updatedAt
+
+  @@index([invitationId])
+  @@index([candidateId])
+  @@index([assessmentId])
+  @@index([status])
+}
+
+model CandidateAnswer {
+  id                  String           @id @default(uuid())
+  sessionId           String
+  session             CandidateSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  questionId          String
+  question            Question         @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  selectedOptionsJson String?          // JSON array of selected optionKeys e.g. ["A"]
+  textAnswer          String?
+  isCorrect           Boolean?
+  scoreObtained       Float            @default(0)
+  status              String           @default("UNANSWERED") // UNANSWERED, ANSWERED, MARKED_FOR_REVIEW
+  timeSpentSeconds    Int              @default(0)
+  updatedAt           DateTime         @updatedAt
+
+  @@unique([sessionId, questionId])
+  @@index([sessionId])
+  @@index([questionId])
+}
+
+model CodingSubmission {
+  id              String           @id @default(uuid())
+  sessionId       String
+  session         CandidateSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  questionId      String
+  question        Question         @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  language        String           // 'python', 'javascript', 'cpp', 'java', etc.
+  sourceCode      String
+  status          String           @default("PENDING") // PENDING, COMPILING, RUNNING, PASSED, FAILED, RUNTIME_ERROR, COMPILATION_ERROR, TIME_LIMIT_EXCEEDED, MEMORY_LIMIT_EXCEEDED, SECURITY_VIOLATION
+  passedTestCases Int              @default(0)
+  totalTestCases  Int              @default(0)
+  executionTimeMs Int              @default(0)
+  memoryUsedKb    Int              @default(0)
+  stdout          String?
+  stderr          String?
+  compileOutput   String?
+  scoreObtained   Float            @default(0)
+  isDraft         Boolean          @default(false)
+  createdAt       DateTime         @default(now())
+
+  @@index([sessionId])
+  @@index([questionId])
+}
+
+model ExecutionJob {
+  id           String          @id @default(uuid())
+  submissionId String
+  status       String          @default("PENDING")
+  retries      Int             @default(0)
+  errorMessage String?
+  workerId     String?
+  createdAt    DateTime        @default(now())
+  completedAt  DateTime?
+
+  @@index([submissionId])
+  @@index([status])
+}
+
+model ExecutionResult {
+  id              String   @id @default(uuid())
+  jobId           String
+  testCaseId      String
+  passed          Boolean  @default(false)
+  actualOutput    String?
+  executionTimeMs Int      @default(0)
+  memoryKb        Int      @default(0)
+  exitCode        Int      @default(0)
+  errorReason     String?
+  createdAt       DateTime @default(now())
+
+  @@index([jobId])
+  @@index([testCaseId])
+}
+
+model AssessmentResult {
+  id                    String            @id @default(uuid())
+  sessionId             String            @unique
+  session               CandidateSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  totalScore            Float             @default(0)
+  maxScore              Float             @default(100)
+  percentage            Float             @default(0)
+  passed                Boolean           @default(false)
+  mcqScore              Float             @default(0)
+  codingScore           Float             @default(0)
+  timeTakenSeconds      Int               @default(0)
+  evaluationSummaryJson String?           // JSON breakdown per section and question
+  sectionResults        SectionResult[]
+  candidateReport       CandidateReport?
+  createdAt             DateTime          @default(now())
+
+  @@index([sessionId])
+}
+
+model SectionResult {
+  id                 String            @id @default(uuid())
+  assessmentResultId String
+  assessmentResult   AssessmentResult  @relation(fields: [assessmentResultId], references: [id], onDelete: Cascade)
+  sectionId          String
+  section            AssessmentSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  score              Float             @default(0)
+  maxScore           Float             @default(0)
+  questionsAttempted Int               @default(0)
+  questionsCorrect   Int               @default(0)
+
+  @@index([assessmentResultId])
+  @@index([sectionId])
+}
+
+model IntegrityEvent {
+  id              String             @id @default(uuid())
+  sessionId       String
+  session         CandidateSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  eventType       String             // TAB_SWITCH, WINDOW_BLUR, FULLSCREEN_EXIT, etc.
+  eventDataJson   String?            // Details e.g. duration blurred, copied text length
+  riskWeight      Int                @default(1)
+  clientTimestamp DateTime
+  serverTimestamp DateTime           @default(now())
+
+  @@index([sessionId])
+  @@index([eventType])
+}
+
+model CandidateReport {
+  id                 String            @id @default(uuid())
+  sessionId          String            @unique
+  session            CandidateSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  assessmentResultId String?           @unique
+  assessmentResult   AssessmentResult? @relation(fields: [assessmentResultId], references: [id], onDelete: Cascade)
+  overallRiskLevel   String            @default("LOW") // LOW, MEDIUM, HIGH, CRITICAL
+  integrityScore     Float             @default(100) // 100 is pristine, decreases as violations accrue
+  recruiterDecision  String            @default("PENDING") // PENDING, SHORTLISTED, REJECTED, UNDER_REVIEW
+  summary            String?
+  generatedAt        DateTime          @default(now())
+
+  @@index([sessionId])
+  @@index([overallRiskLevel])
+  @@index([recruiterDecision])
+}
+
+model InterviewerNote {
+  id           String     @id @default(uuid())
+  candidateId  String
+  candidate    Candidate  @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  assessmentId String
+  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  authorId     String
+  author       User       @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  note         String
+  isPrivate    Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@index([candidateId])
+  @@index([assessmentId])
+  @@index([authorId])
+}
+
+model EmailLog {
+  id             String      @id @default(uuid())
+  candidateId    String?
+  candidate      Candidate?  @relation(fields: [candidateId], references: [id], onDelete: SetNull)
+  invitationId   String?
+  invitation     Invitation? @relation(fields: [invitationId], references: [id], onDelete: SetNull)
+  emailType      String      // 'INVITATION', 'REMINDER', 'SUBMISSION_CONFIRMATION', 'RESCHEDULE'
+  recipientEmail String
+  subject        String
+  status         String      // 'QUEUED', 'SENT', 'DELIVERED', 'FAILED'
+  sentAt         DateTime    @default(now())
+  errorMessage   String?
+
+  @@index([candidateId])
+  @@index([invitationId])
+  @@index([recipientEmail])
+}
+
+model AuditLog {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId         String?
+  user           User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action         String       // 'ASSESSMENT_CREATED', 'INVITATION_SENT', 'RESULTS_EXPORTED_CSV', etc.
+  entityType     String       // 'Assessment', 'Question', 'Candidate', etc.
+  entityId       String?
+  metadataJson   String?
+  ipAddress      String?
+  userAgent      String?
+  createdAt      DateTime     @default(now())
+
+  @@index([organizationId])
+  @@index([userId])
+  @@index([action])
+  @@index([entityType])
+}

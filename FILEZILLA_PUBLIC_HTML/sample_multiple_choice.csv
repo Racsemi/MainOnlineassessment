@@ -1,0 +1,4 @@
+type,text,marks,negativeMarks,difficulty,category,option_A,option_B,option_C,option_D,correct_answer
+MULTIPLE_CHOICE,"Which of the following are JavaScript data types? (Select all that apply)",3,0,Medium,Web,String,Integer,Boolean,undefined,"A;C;D"
+MULTIPLE_CHOICE,"Which of these are valid HTTP methods?",2,0.5,Easy,Networking,GET,FETCH,POST,SEND,"A;C"
+MULTIPLE_CHOICE,"Select the NoSQL databases from the following:",2,0,Medium,Database,MySQL,MongoDB,Redis,PostgreSQL,"B;C"

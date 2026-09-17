@@ -1,0 +1,7 @@
+FROM node:20-alpine
+WORKDIR /usr/src/app
+# We create a simple user to prevent root execution
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+USER appuser
+# The runner script will map the code to /usr/src/app/code.js
+CMD ["node", "code.js"]

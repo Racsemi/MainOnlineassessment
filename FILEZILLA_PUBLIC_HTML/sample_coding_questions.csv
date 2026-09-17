@@ -1,0 +1,6 @@
+﻿title,description,constraints,inputFormat,outputFormat,timeLimit,memoryLimit,allowedLanguages,testcase_input_1,testcase_output_1,testcase_hidden_1,testcase_input_2,testcase_output_2,testcase_hidden_2
+Two Sum,"Given an array of integers nums and an integer target, return the sum of the two numbers that add up to target.","1 <= nums.length <= 100","First line: space-separated integers. Second line: target integer","Output the sum of the two numbers that add to target",2000,256,"PYTHON;JAVA;CPP;JS","1 2 3 4 5
+9","4",false,"10 20 30
+30","20",true
+Palindrome Check,"Write a function to check if a string is a palindrome. Return True or False.","1 <= len(s) <= 1000. Only lowercase letters and digits.","A single string on one line.","True or False",1000,128,"PYTHON;JS","racecar","True",false,"hello","False",true
+FizzBuzz,"Print numbers from 1 to N. For multiples of 3 print Fizz, multiples of 5 print Buzz, multiples of both print FizzBuzz.","1 <= N <= 100","A single integer N","Space-separated output",2000,256,"PYTHON;JAVA;CPP;JS","15","1 2 Fizz 4 Buzz Fizz 7 8 Fizz Buzz 11 Fizz 13 14 FizzBuzz",false,"5","1 2 Fizz 4 Buzz",true

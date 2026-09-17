@@ -1,0 +1,13 @@
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  DirectoryIndex index.html
+
+  # If uploaded as root repo, route requests directly into client/dist/ if needed
+  RewriteCond %{REQUEST_URI} !^/client/dist/
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule ^(.*)$ client/dist/$1 [L]
+</IfModule>
+
+# Disable directory listing
+Options -Indexes

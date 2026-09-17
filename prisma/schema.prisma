@@ -1,0 +1,260 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  name      String
+  role      String   @default("ADMIN") // ADMIN or SUPERADMIN
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Assessment {
+  id             String    @id @default(uuid())
+  title          String
+  description    String?
+  instructions   String?
+  duration       Int        // in minutes
+  startDate      DateTime?
+  endDate        DateTime?
+  status         String    @default("DRAFT") // DRAFT, PUBLISHED
+  
+  sections       Section[]
+  candidates     Candidate[]
+  invitations    Invitation[]
+  results        AssessmentResult[]
+
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+}
+
+model Section {
+  id           String      @id @default(uuid())
+  assessmentId String
+  assessment   Assessment  @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  
+  name         String
+  description  String?
+  order        Int
+  duration     Int         @default(0) // in minutes
+  
+  questions    Question[]
+  codingQuestions CodingQuestion[]
+  
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+}
+
+enum QuestionType {
+  SINGLE_CHOICE
+  MULTIPLE_CHOICE
+  SINGLE_LINE
+  PARAGRAPH
+  NUMERIC
+  TRUE_FALSE
+}
+
+model Question {
+  id          String       @id @default(uuid())
+  sectionId   String?
+  section     Section?     @relation(fields: [sectionId], references: [id], onDelete: SetNull)
+  
+  text        String
+  type        QuestionType
+  marks       Int          @default(1)
+  difficulty  String       @default("Medium")
+  category    String       @default("General")
+  expectedAnswer String?   // For Single Line, Paragraph, Numeric, True/False
+  tolerance   Float?       // For Numeric
+  negativeMarks Float?     // Optional negative marking penalty
+  
+  options     QuestionOption[]
+  answers     CandidateAnswer[]
+  
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+}
+
+model QuestionOption {
+  id          String   @id @default(uuid())
+  questionId  String
+  question    Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  
+  text        String
+  isCorrect   Boolean  @default(false)
+}
+
+model CodingQuestion {
+  id              String      @id @default(uuid())
+  sectionId       String?
+  section         Section?    @relation(fields: [sectionId], references: [id], onDelete: SetNull)
+  
+  title           String
+  description     String
+  inputFormat     String?
+  outputFormat    String?
+  constraints     String?
+  marks           Int         @default(10)
+  timeLimit       Int         @default(2000) // ms
+  memoryLimit     Int         @default(256) // MB
+  
+  allowedLanguages String[]   // e.g. ["PYTHON", "JAVA", "CPP", "JS"]
+  
+  testCases       TestCase[]
+  submissions     CodingSubmission[]
+  
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+}
+
+model TestCase {
+  id               String          @id @default(uuid())
+  codingQuestionId String
+  codingQuestion   CodingQuestion  @relation(fields: [codingQuestionId], references: [id], onDelete: Cascade)
+  
+  input            String
+  expectedOutput   String
+  isHidden         Boolean         @default(false)
+}
+
+model Candidate {
+  id            String       @id @default(uuid())
+  assessmentId  String
+  assessment    Assessment   @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  
+  name          String
+  email         String
+  phone         String?
+  college       String?
+  branch        String?
+  cgpa          Float?
+  photo         String?      @db.Text
+  customFields  Json?
+  
+  sessions      CandidateSession[]
+  results       AssessmentResult[]
+  invitations   Invitation[]
+  files         CandidateFile[]
+  
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  
+  @@unique([email, assessmentId])
+}
+
+model CandidateFile {
+  id          String    @id @default(uuid())
+  candidateId String
+  candidate   Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  
+  fieldName   String
+  fileName    String
+  fileData    String    @db.Text
+  
+  createdAt   DateTime  @default(now())
+}
+
+model Invitation {
+  id           String      @id @default(uuid())
+  candidateId  String
+  candidate    Candidate   @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  assessmentId String
+  assessment   Assessment  @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  
+  token        String      @unique
+  status       String      @default("PENDING") // PENDING, SENT, USED, EXPIRED
+  expiresAt    DateTime?
+  
+  createdAt    DateTime    @default(now())
+}
+
+model CandidateSession {
+  id            String      @id @default(uuid())
+  candidateId   String
+  candidate     Candidate   @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  
+  status        String      @default("IN_PROGRESS") // IN_PROGRESS, COMPLETED, TIMEOUT
+  startedAt     DateTime    @default(now())
+  expiresAt     DateTime    // Server authoritative timer
+  completedAt   DateTime?
+  
+  answers       CandidateAnswer[]
+  codingAnswers CodingSubmission[]
+  integrityEvents IntegrityEvent[]
+}
+
+model CandidateAnswer {
+  id                  String           @id @default(uuid())
+  sessionId           String
+  session             CandidateSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  questionId          String
+  question            Question         @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  
+  selectedOptionIds   String[]         // For MCQ / Multi-select
+  textAnswer          String?          // For Text/Numeric/Paragraph/TrueFalse
+  isMarkedForReview   Boolean          @default(false)
+  score               Float?           // Server populated after eval
+  
+  @@unique([sessionId, questionId])
+}
+
+model CodingSubmission {
+  id              String           @id @default(uuid())
+  sessionId       String
+  session         CandidateSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  codingQuestionId String
+  codingQuestion   CodingQuestion @relation(fields: [codingQuestionId], references: [id], onDelete: Cascade)
+  
+  language        String
+  code            String
+  score           Int?             // Evaluated on final submit
+  status          String           @default("DRAFT") // DRAFT, SUBMITTED
+  
+  @@unique([sessionId, codingQuestionId])
+}
+
+model AssessmentResult {
+  id            String      @id @default(uuid())
+  candidateId   String
+  candidate     Candidate   @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  assessmentId  String
+  assessment    Assessment  @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  
+  totalScore    Float       @default(0)
+  maxScore      Float       @default(0)
+  percentage    Float       @default(0)
+  status        String      @default("EVALUATED") // EVALUATED, SHORTLISTED, REJECTED
+  
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  
+  @@unique([candidateId, assessmentId])
+}
+
+model IntegrityEvent {
+  id            String           @id @default(uuid())
+  sessionId     String
+  session       CandidateSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  
+  eventType     String           // TAB_SWITCH, WINDOW_BLUR, FULLSCREEN_EXIT, COPY, PASTE
+  screenshot    String?
+  timestamp     DateTime         @default(now())
+}
+
+model PlatformSettings {
+  id               String   @id @default("GLOBAL")
+  instructions     String?
+  rules            String?
+  registrationForm Json?    // Master schema of fields candidates must fill
+  features         Json?    // Master toggles like calculator, ide, copyPaste, isProctored
+  
+  updatedAt        DateTime @updatedAt
+}
