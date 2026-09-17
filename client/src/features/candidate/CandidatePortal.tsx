@@ -822,7 +822,7 @@ const CandidatePortal = () => {
                     {executing ? (
                       <div className="flex items-center space-x-2 text-primary">
                         <Loader2 size={16} className="animate-spin" />
-                        <span>Running tests remotely via Piston execution engine...</span>
+                        <span>Running tests remotely...</span>
                       </div>
                     ) : executionResults.length > 0 ? (
                       <div className="space-y-4">

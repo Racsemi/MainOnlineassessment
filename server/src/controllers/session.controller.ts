@@ -274,46 +274,77 @@ export const executeCode = async (req: Request, res: Response) => {
   try {
     const { language, code, testCases } = req.body;
     
-    // Map language to Piston API format
-    const langMap: Record<string, { lang: string, version: string }> = {
-      'PYTHON': { lang: 'python', version: '3.10.0' },
-      'JS': { lang: 'javascript', version: '18.15.0' },
-      'JAVA': { lang: 'java', version: '15.0.2' },
-      'CPP': { lang: 'c++', version: '10.2.0' }
+    // Map language to Wandbox compiler
+    const langMap: Record<string, string> = {
+      'PYTHON': 'cpython-3.10.15',
+      'JS': 'nodejs-20.17.0',
+      'JAVASCRIPT': 'nodejs-20.17.0',
+      'JAVA': 'openjdk-jdk-21+35',
+      'CPP': 'gcc-13.2.0',
+      'C++': 'gcc-13.2.0',
+      'C': 'gcc-13.2.0-c'
     };
     
-    const pistonLang = langMap[language];
-    if (!pistonLang) return res.status(400).json({ error: 'Unsupported language' });
+    const normLang = (language || '').toUpperCase().trim();
+    const compiler = langMap[normLang] || langMap['PYTHON'];
+
+    // In Wandbox, Java code is compiled into prog.java; removing 'public' before class allows any class name to compile
+    let processedCode = code || '';
+    if (normLang === 'JAVA') {
+      processedCode = processedCode.replace(/public\s+class\s+/g, 'class ');
+    }
 
     const results = [];
 
     // Run tests sequentially
-    for (const testCase of testCases) {
-      const payload = {
-        language: pistonLang.lang,
-        version: pistonLang.version,
-        files: [{ content: code }],
-        stdin: testCase.input
-      };
-      
-      const response = await fetch('https://emkc.org/api/v2/piston/execute', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      
-      const data = await response.json();
-      
-      const output = data.run.stdout.trim() || data.run.stderr.trim();
-      const passed = output === testCase.expectedOutput?.trim();
-      
-      results.push({
-        input: testCase.input,
-        expectedOutput: testCase.expectedOutput,
-        actualOutput: output,
-        passed,
-        isHidden: testCase.isHidden
-      });
+    for (const testCase of (testCases || [])) {
+      try {
+        const payload = {
+          compiler,
+          code: processedCode,
+          stdin: testCase.input !== undefined && testCase.input !== null ? String(testCase.input) : ''
+        };
+        
+        const response = await fetch('https://wandbox.org/api/compile.json', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+          const errText = await response.text().catch(() => '');
+          results.push({
+            input: testCase.input,
+            expectedOutput: testCase.expectedOutput,
+            actualOutput: `Execution error (${response.status}): ${errText}`,
+            passed: false,
+            isHidden: testCase.isHidden
+          });
+          continue;
+        }
+        
+        const data = (await response.json()) as any;
+        
+        const rawOutput = (data?.program_output || data?.compiler_error || data?.program_error || '').trim();
+        const expected = (testCase.expectedOutput !== undefined && testCase.expectedOutput !== null ? String(testCase.expectedOutput) : '').trim();
+        const passed = rawOutput === expected;
+        
+        results.push({
+          input: testCase.input,
+          expectedOutput: testCase.expectedOutput,
+          actualOutput: rawOutput,
+          passed,
+          isHidden: testCase.isHidden
+        });
+      } catch (tcErr: any) {
+        results.push({
+          input: testCase.input,
+          expectedOutput: testCase.expectedOutput,
+          actualOutput: tcErr?.message || 'Execution error',
+          passed: false,
+          isHidden: testCase.isHidden
+        });
+      }
     }
 
     res.json({ results });
