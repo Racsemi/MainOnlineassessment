@@ -77,6 +77,7 @@ export const createCodingQuestion = async (req: Request, res: Response) => {
     
     res.status(201).json(codingQuestion);
   } catch (error) {
+    console.error('[CODING QUESTION ERROR]', error);
     res.status(500).json({ error: 'Failed to create coding question' });
   }
 };
