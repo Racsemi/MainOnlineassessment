@@ -16,7 +16,7 @@ const ResultsView: React.FC<ResultsViewProps> = ({ assessmentId: propId }) => {
   const { id: paramId } = useParams();
   const id = propId || paramId;
 
-  const [results, setResults] = useState<any[]>([]);
+  const [rawResults, setRawResults] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedCandidate, setSelectedCandidate] = useState<any>(null);
   const [activeModalTab, setActiveModalTab] = useState<'ANSWERS' | 'CODING' | 'INTEGRITY' | 'PROFILE'>('ANSWERS');
@@ -30,7 +30,7 @@ const ResultsView: React.FC<ResultsViewProps> = ({ assessmentId: propId }) => {
     setLoading(true);
     try {
       const res = await api.get(`/assessments/${id}/results`);
-      setResults(res.data);
+      setRawResults(Array.isArray(res.data) ? res.data : []);
     } catch (err) {
       console.error('Failed to fetch results:', err);
     } finally {
@@ -42,10 +42,89 @@ const ResultsView: React.FC<ResultsViewProps> = ({ assessmentId: propId }) => {
     fetchResults();
   }, [id]);
 
+  // Normalize candidate fields from either direct properties or nested customFields
+  const normalizedResults = rawResults.map((r: any) => {
+    const rawCustom = r.customFields || {};
+    const phone = r.phone || rawCustom.phone || '';
+    const college = r.college || rawCustom.field_1 || rawCustom.college || '';
+    const cgpa = (r.cgpa !== undefined && r.cgpa !== null && r.cgpa !== '') 
+      ? String(r.cgpa) 
+      : (rawCustom.field_2 || rawCustom.cgpa || '');
+    const branch = r.branch || rawCustom.branch || '';
+    const resumeName = r.files?.[0]?.fileName || rawCustom.field_3 || '';
+    
+    // Calculate sub-scores if not already provided by backend
+    const standardAnswers = r.standardAnswers || [];
+    const codingSubmissions = r.codingSubmissions || [];
+    
+    const mcqScore = r.mcqScore !== undefined 
+      ? r.mcqScore 
+      : standardAnswers.reduce((sum: number, a: any) => sum + (Number(a.score) || 0), 0);
+    const mcqMaxScore = r.mcqMaxScore !== undefined 
+      ? r.mcqMaxScore 
+      : standardAnswers.reduce((sum: number, a: any) => sum + (Number(a.maxScore) || 0), 0);
+      
+    const codingScore = r.codingScore !== undefined 
+      ? r.codingScore 
+      : codingSubmissions.reduce((sum: number, a: any) => sum + (Number(a.score) || 0), 0);
+    const codingMaxScore = r.codingMaxScore !== undefined 
+      ? r.codingMaxScore 
+      : codingSubmissions.reduce((sum: number, a: any) => sum + (Number(a.maxScore) || 10), 0);
+
+    const totalScore = r.score !== undefined ? r.score : (mcqScore + codingScore);
+    const maxScore = r.maxScore || (mcqMaxScore + codingMaxScore) || 100;
+    const percentage = r.percentage !== undefined 
+      ? r.percentage 
+      : (maxScore > 0 ? Math.round((totalScore / maxScore) * 1000) / 10 : 0);
+
+    // Map custom field human-readable labels
+    const fieldLabels: Record<string, string> = {
+      phone: 'Phone Number',
+      field_1: 'College / Institute',
+      field_2: 'CGPA / Percentage',
+      field_3: 'Resume / Document',
+      college: 'College / Institute',
+      cgpa: 'CGPA / Percentage',
+      branch: 'Branch / Degree'
+    };
+
+    const customFieldsWithLabels: Record<string, { label: string, value: any }> = {};
+    if (r.customFieldsWithLabels) {
+      Object.assign(customFieldsWithLabels, r.customFieldsWithLabels);
+    } else {
+      for (const [k, v] of Object.entries(rawCustom)) {
+        customFieldsWithLabels[k] = {
+          label: fieldLabels[k] || k,
+          value: v
+        };
+      }
+    }
+
+    return {
+      ...r,
+      candidateId: r.candidateId || r.id,
+      phone,
+      college,
+      cgpa,
+      branch,
+      resumeName,
+      score: totalScore,
+      maxScore,
+      percentage,
+      mcqScore,
+      mcqMaxScore,
+      codingScore,
+      codingMaxScore,
+      customFieldsWithLabels,
+      standardAnswers,
+      codingSubmissions
+    };
+  });
+
   const handleStatusChange = async (resultId: string, newStatus: string) => {
     try {
       await api.put(`/assessments/${id}/results/${resultId}/status`, { status: newStatus });
-      setResults(prev => prev.map(r => (r.id === resultId || r.candidateId === resultId) ? { ...r, status: newStatus } : r));
+      setRawResults(prev => prev.map(r => (r.id === resultId || r.candidateId === resultId) ? { ...r, status: newStatus } : r));
       if (selectedCandidate && (selectedCandidate.id === resultId || selectedCandidate.candidateId === resultId)) {
         setSelectedCandidate((prev: any) => ({ ...prev, status: newStatus }));
       }
@@ -62,17 +141,25 @@ const ResultsView: React.FC<ResultsViewProps> = ({ assessmentId: propId }) => {
       if (isCoding) {
         updatedCandidate.codingSubmissions = updatedCandidate.codingSubmissions.map((ca: any) => ca.id === answerId ? { ...ca, score } : ca);
       } else {
-        updatedCandidate.standardAnswers = updatedCandidate.standardAnswers.map((ans: any) => ans.id === answerId ? { ...ans, score } : ans);
+        updatedCandidate.standardAnswers = updatedCandidate.standardAnswers.map((ans: any) => ans.id === answerId ? { ...ans, score, isCorrect: score > 0 } : ans);
       }
       
       if (res.data?.updatedResult) {
         updatedCandidate.score = res.data.updatedResult.totalScore;
         updatedCandidate.percentage = Math.round(res.data.updatedResult.percentage * 10) / 10;
+      } else {
+        // Recompute locally
+        const newMcq = updatedCandidate.standardAnswers.reduce((sum: number, a: any) => sum + (Number(a.score) || 0), 0);
+        const newCoding = updatedCandidate.codingSubmissions.reduce((sum: number, a: any) => sum + (Number(a.score) || 0), 0);
+        updatedCandidate.mcqScore = newMcq;
+        updatedCandidate.codingScore = newCoding;
+        updatedCandidate.score = newMcq + newCoding;
+        updatedCandidate.percentage = updatedCandidate.maxScore > 0 ? Math.round((updatedCandidate.score / updatedCandidate.maxScore) * 1000) / 10 : 0;
       }
       
       setSelectedCandidate(updatedCandidate);
       
-      setResults(prev => prev.map(r => (r.id === selectedCandidate.id || r.candidateId === selectedCandidate.candidateId) ? { 
+      setRawResults(prev => prev.map(r => (r.id === selectedCandidate.id || r.candidateId === selectedCandidate.candidateId) ? { 
         ...r, 
         score: updatedCandidate.score, 
         percentage: updatedCandidate.percentage,
@@ -95,7 +182,7 @@ const ResultsView: React.FC<ResultsViewProps> = ({ assessmentId: propId }) => {
   };
 
   const handleExportCsv = () => {
-    if (results.length === 0) return;
+    if (normalizedResults.length === 0) return;
     const headers = [
       'Candidate Name',
       'Email',
@@ -114,26 +201,23 @@ const ResultsView: React.FC<ResultsViewProps> = ({ assessmentId: propId }) => {
       'Submitted At'
     ];
     
-    const rows = results.map(r => {
-      const resumeFile = r.files?.[0]?.fileName || r.customFields?.field_3 || '';
-      return [
-        `"${(r.name || '').replace(/"/g, '""')}"`, 
-        `"${(r.email || '').replace(/"/g, '""')}"`, 
-        `"${(r.phone || '').replace(/"/g, '""')}"`,
-        `"${(r.college || '').replace(/"/g, '""')}"`,
-        `"${r.cgpa || ''}"`,
-        `"${(r.branch || '').replace(/"/g, '""')}"`,
-        r.score ?? 0, 
-        r.maxScore ?? 0,
-        `${r.percentage ?? 0}%`,
-        r.mcqScore ?? 0,
-        r.codingScore ?? 0,
-        r.status || 'EVALUATED', 
-        r.integrityEventsCount ?? 0,
-        `"${resumeFile.replace(/"/g, '""')}"`,
-        `"${r.submittedAt ? new Date(r.submittedAt).toLocaleString() : ''}"`
-      ];
-    });
+    const rows = normalizedResults.map(r => [
+      `"${(r.name || '').replace(/"/g, '""')}"`, 
+      `"${(r.email || '').replace(/"/g, '""')}"`, 
+      `"${(r.phone || '').replace(/"/g, '""')}"`,
+      `"${(r.college || '').replace(/"/g, '""')}"`,
+      `"${r.cgpa || ''}"`,
+      `"${(r.branch || '').replace(/"/g, '""')}"`,
+      r.score ?? 0, 
+      r.maxScore ?? 0,
+      `${r.percentage ?? 0}%`,
+      r.mcqScore ?? 0,
+      r.codingScore ?? 0,
+      r.status || 'EVALUATED', 
+      r.integrityEventsCount ?? 0,
+      `"${(r.resumeName || '').replace(/"/g, '""')}"`,
+      `"${r.submittedAt ? new Date(r.submittedAt).toLocaleString() : ''}"`
+    ]);
 
     const csvContent = [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -151,7 +235,7 @@ const ResultsView: React.FC<ResultsViewProps> = ({ assessmentId: propId }) => {
     window.print();
   };
 
-  const filteredResults = results.filter(r => {
+  const filteredResults = normalizedResults.filter(r => {
     const query = searchQuery.toLowerCase();
     const matchesSearch = 
       (r.name && r.name.toLowerCase().includes(query)) || 
@@ -162,16 +246,16 @@ const ResultsView: React.FC<ResultsViewProps> = ({ assessmentId: propId }) => {
     return matchesSearch && matchesStatus;
   });
 
-  // Calculate high-level KPIs
-  const totalCandidates = results.length;
-  const completedCandidates = results.filter(r => r.status === 'EVALUATED' || r.status === 'SHORTLISTED').length;
+  // KPI Calculations
+  const totalCandidates = normalizedResults.length;
+  const completedCandidates = normalizedResults.filter(r => r.status === 'EVALUATED' || r.status === 'SHORTLISTED').length;
   const avgScore = totalCandidates > 0 
-    ? Math.round(results.reduce((acc, r) => acc + (r.percentage || 0), 0) / totalCandidates) 
+    ? Math.round(normalizedResults.reduce((acc, r) => acc + (r.percentage || 0), 0) / totalCandidates) 
     : 0;
   const topScore = totalCandidates > 0 
-    ? Math.max(...results.map(r => r.score || 0)) 
+    ? Math.max(...normalizedResults.map(r => r.score || 0)) 
     : 0;
-  const flaggedCandidates = results.filter(r => r.integrityEventsCount > 0).length;
+  const flaggedCandidates = normalizedResults.filter(r => (r.integrityEventsCount || 0) > 0).length;
 
   return (
     <div className="p-6 md:p-8 max-w-7xl mx-auto w-full">
@@ -197,7 +281,7 @@ const ResultsView: React.FC<ResultsViewProps> = ({ assessmentId: propId }) => {
           </button>
           <button 
             onClick={handleExportCsv}
-            disabled={results.length === 0}
+            disabled={normalizedResults.length === 0}
             className="bg-primary hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-bold transition-all shadow-sm flex items-center space-x-2 text-sm disabled:opacity-50"
           >
             <Download size={16} />
@@ -280,7 +364,7 @@ const ResultsView: React.FC<ResultsViewProps> = ({ assessmentId: propId }) => {
               onChange={(e) => setFilterStatus(e.target.value)}
               className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary bg-white text-gray-700 font-medium"
             >
-              <option value="ALL">All Statuses ({results.length})</option>
+              <option value="ALL">All Statuses ({normalizedResults.length})</option>
               <option value="EVALUATED">Evaluated</option>
               <option value="SHORTLISTED">Shortlisted</option>
               <option value="ON_HOLD">On Hold</option>
@@ -321,8 +405,7 @@ const ResultsView: React.FC<ResultsViewProps> = ({ assessmentId: propId }) => {
                 </tr>
               ) : (
                 filteredResults.map((r: any) => {
-                  const hasResume = r.files && r.files.length > 0;
-                  const firstFile = hasResume ? r.files[0] : null;
+                  const firstFile = r.files && r.files.length > 0 ? r.files[0] : null;
 
                   return (
                     <tr key={r.id || r.candidateId} className="hover:bg-blue-50/30 transition-colors">
@@ -341,7 +424,7 @@ const ResultsView: React.FC<ResultsViewProps> = ({ assessmentId: propId }) => {
                               <span>{r.name}</span>
                             </div>
                             <div className="text-xs text-gray-500">{r.email}</div>
-                            {r.phone && <div className="text-[11px] text-gray-400 mt-0.5">📞 {r.phone}</div>}
+                            {r.phone && <div className="text-[11px] text-gray-400 mt-0.5 font-mono">📞 {r.phone}</div>}
                           </div>
                         </div>
                       </td>
@@ -428,6 +511,11 @@ const ResultsView: React.FC<ResultsViewProps> = ({ assessmentId: propId }) => {
                             <Download size={13} />
                             <span className="truncate">{firstFile.fileName}</span>
                           </a>
+                        ) : r.resumeName ? (
+                          <span className="inline-flex items-center space-x-1 text-xs text-gray-700 bg-gray-100 px-2 py-1 rounded max-w-[140px] truncate" title={r.resumeName}>
+                            <FileText size={12} className="text-gray-400" />
+                            <span className="truncate">{r.resumeName}</span>
+                          </span>
                         ) : (
                           <span className="text-gray-400 text-xs italic">No file</span>
                         )}
@@ -566,6 +654,8 @@ const ResultsView: React.FC<ResultsViewProps> = ({ assessmentId: propId }) => {
                   ) : (
                     selectedCandidate.standardAnswers.map((ans: any, idx: number) => {
                       const isExpanded = !!expandedAnswers[ans.id];
+                      const isCorrect = ans.isCorrect !== undefined ? ans.isCorrect : (Number(ans.score) > 0);
+
                       return (
                         <div key={ans.id || idx} className="bg-gray-50 border border-gray-200 rounded-xl p-4 transition-all">
                           <div className="flex justify-between items-start gap-4">
@@ -573,7 +663,7 @@ const ResultsView: React.FC<ResultsViewProps> = ({ assessmentId: propId }) => {
                               <div className="flex items-center space-x-2 mb-1">
                                 <span className="bg-gray-200 text-gray-700 text-xs font-bold px-2 py-0.5 rounded">Q{idx + 1}</span>
                                 <span className="text-[11px] font-bold text-gray-400 uppercase">{ans.type?.replace('_', ' ')}</span>
-                                {ans.isCorrect ? (
+                                {isCorrect ? (
                                   <span className="inline-flex items-center text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded">
                                     <CheckCircle size={13} className="mr-1" /> Correct (+{ans.score} pts)
                                   </span>
@@ -605,7 +695,7 @@ const ResultsView: React.FC<ResultsViewProps> = ({ assessmentId: propId }) => {
                           <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3 pt-3 border-t border-gray-200/60">
                             <div className="bg-white p-3 rounded-lg border border-gray-200 text-xs">
                               <div className="font-bold text-gray-500 uppercase tracking-wider text-[10px] mb-1">Candidate Selected:</div>
-                              <div className={`font-semibold ${ans.isCorrect ? 'text-emerald-700' : 'text-red-700'}`}>
+                              <div className={`font-semibold ${isCorrect ? 'text-emerald-700' : 'text-red-700'}`}>
                                 {ans.response || <span className="italic text-gray-400">(No response given)</span>}
                               </div>
                             </div>
@@ -613,7 +703,7 @@ const ResultsView: React.FC<ResultsViewProps> = ({ assessmentId: propId }) => {
                             <div className="bg-white p-3 rounded-lg border border-gray-200 text-xs">
                               <div className="font-bold text-emerald-600 uppercase tracking-wider text-[10px] mb-1">Correct Answer:</div>
                               <div className="font-semibold text-emerald-800">
-                                {ans.correctAnswer || 'Evaluated manually / subjective'}
+                                {ans.correctAnswer || (isCorrect ? ans.response : 'Evaluated manually / subjective')}
                               </div>
                             </div>
                           </div>
@@ -773,7 +863,7 @@ const ResultsView: React.FC<ResultsViewProps> = ({ assessmentId: propId }) => {
 
                       <div>
                         <div className="text-xs font-bold text-gray-400 uppercase tracking-wider">Phone Number</div>
-                        <div className="font-semibold text-dark text-base mt-0.5">{selectedCandidate.phone || '—'}</div>
+                        <div className="font-semibold text-dark text-base mt-0.5 font-mono">{selectedCandidate.phone || '—'}</div>
                       </div>
 
                       <div>
@@ -832,6 +922,21 @@ const ResultsView: React.FC<ResultsViewProps> = ({ assessmentId: propId }) => {
                             </a>
                           </div>
                         ))}
+                      </div>
+                    ) : selectedCandidate.resumeName ? (
+                      <div className="bg-white p-4 rounded-xl border border-gray-200 flex items-center justify-between shadow-sm">
+                        <div className="flex items-center space-x-3">
+                          <div className="w-10 h-10 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
+                            <FileText size={20} />
+                          </div>
+                          <div>
+                            <div className="font-bold text-dark text-sm">{selectedCandidate.resumeName}</div>
+                            <div className="text-xs text-gray-400">Registered Resume</div>
+                          </div>
+                        </div>
+                        <span className="text-xs font-bold text-gray-500 bg-gray-100 px-3 py-1.5 rounded-lg">
+                          Attached on registration
+                        </span>
                       </div>
                     ) : (
                       <div className="text-sm text-gray-500 italic py-4">No files or resume attached for this candidate.</div>
