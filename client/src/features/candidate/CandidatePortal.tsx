@@ -832,16 +832,16 @@ const CandidatePortal = () => {
                               {res.passed ? <span className="text-success flex items-center"><Check size={14} className="mr-1"/> Test {idx + 1} Passed</span> : <span className="text-danger flex items-center"><AlertTriangle size={14} className="mr-1"/> Test {idx + 1} Failed</span>}
                               {res.isHidden && <span className="bg-gray-800 text-xs px-2 py-0.5 rounded text-gray-400">Hidden</span>}
                             </div>
-                            {!res.passed && !res.isHidden && (
+                            {!res.isHidden && (
                               <div className="mt-2 text-xs space-y-2">
-                                <div><span className="text-gray-500">Input:</span><br/><span className="text-white bg-black/50 px-2 py-1 rounded block mt-1">{res.input}</span></div>
-                                <div><span className="text-gray-500">Expected:</span><br/><span className="text-success bg-black/50 px-2 py-1 rounded block mt-1">{res.expectedOutput}</span></div>
-                                <div><span className="text-gray-500">Actual:</span><br/><span className="text-danger bg-black/50 px-2 py-1 rounded block mt-1">{res.actualOutput || '(no output)'}</span></div>
+                                {res.input && <div><span className="text-gray-500">Input:</span><br/><span className="text-white bg-black/50 px-2 py-1 rounded block mt-1">{res.input}</span></div>}
+                                {res.expectedOutput && <div><span className="text-gray-500">Expected:</span><br/><span className="text-success bg-black/50 px-2 py-1 rounded block mt-1">{res.expectedOutput}</span></div>}
+                                <div><span className="text-gray-500">{res.passed ? 'Output:' : 'Actual Output / Error:'}</span><br/><span className={`${res.passed ? 'text-success' : 'text-danger'} bg-black/50 px-2 py-1 rounded block mt-1 whitespace-pre-wrap`}>{res.actualOutput || '(no output)'}</span></div>
                               </div>
                             )}
-                            {!res.passed && res.isHidden && (
-                              <div className="mt-2 text-xs text-gray-500">
-                                This is a hidden test case. Output details are suppressed.
+                            {res.isHidden && (
+                              <div className="mt-2 text-xs text-gray-400">
+                                {res.passed ? 'Hidden test case passed.' : `Hidden test case failed. ${res.actualOutput ? `Output: ${res.actualOutput}` : ''}`}
                               </div>
                             )}
                           </div>

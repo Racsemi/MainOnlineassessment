@@ -127,79 +127,167 @@ export const updateAssessment = async (req: Request, res: Response) => {
 export const getAssessmentResults = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const results = await prisma.assessmentResult.findMany({
+
+    // Fetch platform settings to map registrationForm field IDs (e.g. field_1 -> College, field_2 -> CGPA, field_3 -> Resume)
+    const settings = await prisma.platformSettings.findUnique({
+      where: { id: 'GLOBAL' }
+    });
+    const fieldLabelMap: Record<string, string> = {};
+    if (settings?.registrationForm && Array.isArray(settings.registrationForm)) {
+      for (const f of settings.registrationForm as any[]) {
+        if (f.name && f.label) {
+          fieldLabelMap[f.name] = f.label;
+        }
+      }
+    }
+
+    // Fetch all candidates belonging to this assessment to guarantee no candidate or result is missed
+    const candidates = await prisma.candidate.findMany({
       where: { assessmentId: id },
       include: {
-        candidate: {
-          include: {
-            sessions: {
+        results: { where: { assessmentId: id } },
+        files: { select: { id: true, fieldName: true, fileName: true, createdAt: true } },
+        sessions: {
+          orderBy: { startedAt: 'desc' },
+          include: { 
+            integrityEvents: { orderBy: { timestamp: 'asc' } },
+            answers: {
               include: { 
-                integrityEvents: true,
-                answers: {
-                  include: { 
-                    question: {
-                      include: { options: true }
-                    }
-                  }
-                },
-                codingAnswers: {
-                  include: { codingQuestion: true }
+                question: {
+                  include: { options: true }
                 }
+              }
+            },
+            codingAnswers: {
+              include: { 
+                codingQuestion: {
+                  include: { testCases: true }
+                } 
               }
             }
           }
         }
-      },
-      orderBy: { totalScore: 'desc' }
+      }
     });
-    
-    const mapped = results.map(r => {
-      const session = r.candidate.sessions[0];
+
+    const mapped = candidates.map(c => {
+      const result = c.results[0];
+      // Pick completed session first, or latest session
+      const session = c.sessions.find(s => s.status === 'COMPLETED') || c.sessions[0];
+
       const codingSubmissions = (session?.codingAnswers || []).map((ca: any) => ({
         id: ca.id,
-        questionTitle: ca.codingQuestion?.title,
+        questionTitle: ca.codingQuestion?.title || 'Coding Question',
+        questionDescription: ca.codingQuestion?.description || '',
         language: ca.language,
         status: ca.status,
-        score: ca.score,
+        score: ca.score ?? 0,
         maxScore: ca.codingQuestion?.marks || 10,
-        code: ca.code
+        code: ca.code,
+        testCases: (ca.codingQuestion?.testCases || []).map((tc: any) => ({
+          input: tc.input,
+          expectedOutput: tc.expectedOutput,
+          isHidden: tc.isHidden
+        }))
       }));
 
       const standardAnswers = (session?.answers || []).map((ans: any) => {
         let responseText = ans.textAnswer || '';
-        if (ans.selectedOptionIds && ans.selectedOptionIds.length > 0) {
-          const selectedOpts = ans.question.options.filter((o: any) => ans.selectedOptionIds.includes(o.id));
+        const selectedOpts = (ans.question?.options || []).filter((o: any) => (ans.selectedOptionIds || []).includes(o.id));
+        if (selectedOpts.length > 0) {
           responseText = selectedOpts.map((o: any) => o.text).join(', ');
         }
+        
+        const correctOpts = (ans.question?.options || []).filter((o: any) => o.isCorrect);
+        const correctAnswer = correctOpts.length > 0 
+          ? correctOpts.map((o: any) => o.text).join(', ') 
+          : (ans.question?.expectedAnswer || '');
+
+        const isCorrect = (ans.score || 0) > 0;
+
         return {
           id: ans.id,
-          questionText: ans.question.text,
-          type: ans.question.type,
+          questionId: ans.questionId,
+          questionText: ans.question?.text || 'Question',
+          type: ans.question?.type || 'SINGLE_CHOICE',
+          options: (ans.question?.options || []).map((o: any) => ({
+            id: o.id,
+            text: o.text,
+            isCorrect: o.isCorrect,
+            isSelected: (ans.selectedOptionIds || []).includes(o.id)
+          })),
+          selectedOptionIds: ans.selectedOptionIds || [],
           response: responseText,
-          score: ans.score,
-          maxScore: ans.question.marks
+          correctAnswer,
+          isCorrect,
+          score: ans.score ?? 0,
+          maxScore: ans.question?.marks ?? 0
         };
       });
 
+      // Calculate category scores
+      const mcqScore = standardAnswers.reduce((sum: number, a: any) => sum + (a.score || 0), 0);
+      const mcqMaxScore = standardAnswers.reduce((sum: number, a: any) => sum + (a.maxScore || 0), 0);
+      const codingScore = codingSubmissions.reduce((sum: number, a: any) => sum + (a.score || 0), 0);
+      const codingMaxScore = codingSubmissions.reduce((sum: number, a: any) => sum + (a.maxScore || 0), 0);
+
+      // Resolve human-readable custom registration fields
+      const customFieldsWithLabels: Record<string, { label: string, value: any }> = {};
+      const rawCustom = (c.customFields as Record<string, any>) || {};
+      for (const [k, v] of Object.entries(rawCustom)) {
+        const label = fieldLabelMap[k] || (k === 'phone' ? 'Phone Number' : k);
+        customFieldsWithLabels[k] = { label, value: v };
+      }
+
+      // Format profile data
+      const phone = c.phone || rawCustom.phone || '';
+      const college = c.college || rawCustom.field_1 || rawCustom.college || '';
+      const cgpa = c.cgpa !== null && c.cgpa !== undefined ? String(c.cgpa) : (rawCustom.field_2 || rawCustom.cgpa || '');
+      const branch = c.branch || rawCustom.branch || '';
+
+      const totalScore = result ? result.totalScore : (mcqScore + codingScore);
+      const maxScore = result ? result.maxScore : (mcqMaxScore + codingMaxScore);
+      const percentage = result ? result.percentage : (maxScore > 0 ? (totalScore / maxScore) * 100 : 0);
+      const status = result?.status || (session?.status === 'COMPLETED' ? 'EVALUATED' : (session?.status || 'INVITED'));
+
       return {
-        id: r.id,
-        name: r.candidate.name,
-        email: r.candidate.email,
-        photo: r.candidate.photo,
-        customFields: r.candidate.customFields,
-        score: r.totalScore,
-        maxScore: r.maxScore,
-        percentage: r.percentage,
-        status: session?.status === 'COMPLETED' ? 'EVALUATED' : session?.status || r.status,
+        id: result?.id || c.id,
+        candidateId: c.id,
+        name: c.name,
+        email: c.email,
+        phone,
+        college,
+        branch,
+        cgpa,
+        photo: c.photo,
+        customFields: rawCustom,
+        customFieldsWithLabels,
+        files: c.files || [],
+        score: totalScore,
+        maxScore,
+        percentage: Math.round(percentage * 10) / 10,
+        mcqScore,
+        mcqMaxScore,
+        codingScore,
+        codingMaxScore,
+        status,
+        sessionStatus: session?.status || 'NOT_STARTED',
+        startedAt: session?.startedAt,
+        completedAt: session?.completedAt,
+        submittedAt: result?.createdAt || session?.completedAt,
         integrityEventsCount: session?.integrityEvents?.length || 0,
         integrityEvents: session?.integrityEvents || [],
         codingSubmissions,
         standardAnswers
       };
     });
-    
+
+    // Sort candidates by total score descending
+    mapped.sort((a, b) => b.score - a.score);
+
     res.json(mapped);
   } catch (error) {
+    console.error('getAssessmentResults error:', error);
     res.status(500).json({ error: 'Failed to fetch results' });
   }
 };
@@ -255,12 +343,20 @@ export const updateResultStatus = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Invalid status' });
     }
     
-    const updated = await prisma.assessmentResult.update({
-      where: { id: resultId },
-      data: { status }
-    });
+    let result = await prisma.assessmentResult.findUnique({ where: { id: resultId } });
+    if (!result) {
+      result = await prisma.assessmentResult.findFirst({ where: { candidateId: resultId } });
+    }
+
+    if (result) {
+      const updated = await prisma.assessmentResult.update({
+        where: { id: result.id },
+        data: { status }
+      });
+      return res.json(updated);
+    }
     
-    res.json(updated);
+    res.status(404).json({ error: 'Result not found' });
   } catch (error) {
     res.status(500).json({ error: 'Failed to update result status' });
   }
@@ -279,21 +375,28 @@ export const updateAnswerScore = async (req: Request, res: Response) => {
     }
     
     // recalculate total score for AssessmentResult
-    const result = await prisma.assessmentResult.findUnique({
+    let result = await prisma.assessmentResult.findUnique({
       where: { id: resultId },
       include: { candidate: { include: { sessions: { include: { answers: true, codingAnswers: true } } } } }
     });
+
+    if (!result) {
+      result = await prisma.assessmentResult.findFirst({
+        where: { candidateId: resultId },
+        include: { candidate: { include: { sessions: { include: { answers: true, codingAnswers: true } } } } }
+      });
+    }
     
     if (result) {
-      const session = result.candidate.sessions[0];
+      const session = result.candidate.sessions.find((s: any) => s.status === 'COMPLETED') || result.candidate.sessions[0];
       let newTotal = 0;
-      session?.answers.forEach(a => { newTotal += (a.score || 0) });
-      session?.codingAnswers.forEach(c => { newTotal += (c.score || 0) });
+      session?.answers.forEach((a: any) => { newTotal += (a.score || 0); });
+      session?.codingAnswers.forEach((c: any) => { newTotal += (c.score || 0); });
       
       const percentage = result.maxScore > 0 ? (newTotal / result.maxScore) * 100 : 0;
       
       const updatedResult = await prisma.assessmentResult.update({
-        where: { id: resultId },
+        where: { id: result.id },
         data: { totalScore: newTotal, percentage }
       });
       return res.json({ updatedResult, newScore: score });

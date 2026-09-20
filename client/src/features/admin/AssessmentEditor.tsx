@@ -385,8 +385,8 @@ const AssessmentEditor = () => {
 
         {/* ANALYTICS TAB */}
         {activeTab === 'ANALYTICS' && !isNew && (
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 h-[800px] overflow-hidden">
-            <ResultsView />
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 min-h-[600px] w-full overflow-visible">
+            <ResultsView assessmentId={id} />
           </div>
         )}
 

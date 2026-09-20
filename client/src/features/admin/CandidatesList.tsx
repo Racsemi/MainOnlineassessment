@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Search, Trash2, Edit, Upload, X, CheckCircle, AlertTriangle, Loader2, Download } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Plus, Search, Trash2, Edit, Upload, X, CheckCircle, AlertTriangle, Loader2, Download, Eye } from 'lucide-react';
 import api from '../../lib/axios';
 
 const CandidatesList = () => {
+  const navigate = useNavigate();
   const [candidates, setCandidates] = useState<any[]>([]);
   const [assessments, setAssessments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -260,6 +262,16 @@ const CandidatesList = () => {
                 </td>
                 <td className="text-right">
                   <div className="flex items-center justify-end space-x-2">
+                    {c.assessmentId && (c.results?.length > 0 || c.sessions?.length > 0) && (
+                      <button
+                        onClick={() => navigate(`/admin/assessments/${c.assessmentId}/results`)}
+                        className="text-xs font-bold text-primary bg-blue-50 border border-blue-200 px-3 py-1.5 rounded-lg hover:bg-blue-100 transition-colors flex items-center space-x-1 shadow-sm"
+                        title="View complete assessment results"
+                      >
+                        <Eye size={13} />
+                        <span>Results</span>
+                      </button>
+                    )}
                     {(c.results?.length > 0 || c.sessions?.length > 0) && (
                       <button
                         onClick={() => handleResetTest(c.id, c.assessmentId)}
