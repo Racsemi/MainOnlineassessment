@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import prisma from '../utils/db';
+import { evaluateCodingSubmission } from '../utils/codeEvaluator';
 
 export const checkSession = async (req: Request, res: Response) => {
   try {
@@ -170,7 +171,13 @@ export const submitAssessment = async (req: Request, res: Response) => {
       data: { status: 'COMPLETED', completedAt: new Date() },
       include: { 
         answers: { include: { question: { include: { options: true } } } },
-        codingAnswers: { include: { codingQuestion: true } },
+        codingAnswers: { 
+          include: { 
+            codingQuestion: { 
+              include: { testCases: true } 
+            } 
+          } 
+        },
         candidate: true
       }
     });
@@ -222,20 +229,38 @@ export const submitAssessment = async (req: Request, res: Response) => {
       totalScore += score;
     }
 
-    // Include coding questions in maxScore and mark as SUBMITTED
-    // Coding questions are scored 0 at submit (manual/auto review later)
-    // but their marks count toward maxScore so percentage is accurate
+    // Evaluate coding submissions and allot marks based on test cases passed
     for (const coding of session.codingAnswers) {
       const cq = coding.codingQuestion as any;
       if (cq) {
-        maxScore += cq.marks || 10;
-        // Mark as SUBMITTED (no longer DRAFT)
+        const questionMarks = cq.marks || 10;
+        maxScore += questionMarks;
+
+        let codingMarks = 0;
+        if (coding.code && coding.code.trim().length > 0 && cq.testCases && cq.testCases.length > 0) {
+          try {
+            const evalResult = await evaluateCodingSubmission(
+              coding.language,
+              coding.code,
+              cq.testCases,
+              questionMarks
+            );
+            codingMarks = evalResult.allottedScore;
+          } catch (evalErr) {
+            console.error('Error auto-evaluating coding question on submit:', evalErr);
+            codingMarks = 0;
+          }
+        }
+
         await prisma.codingSubmission.update({
           where: { id: coding.id },
-          data: { status: 'SUBMITTED' }
+          data: { 
+            score: codingMarks,
+            status: 'SUBMITTED' 
+          }
         });
-        // Score stays 0 for now — admin can review and assign score manually
-        // or auto-grading can run later
+
+        totalScore += codingMarks;
       }
     }
 
@@ -272,82 +297,22 @@ export const logIntegrityEvent = async (req: Request, res: Response) => {
 
 export const executeCode = async (req: Request, res: Response) => {
   try {
-    const { language, code, testCases } = req.body;
+    const { language, code, testCases, marks } = req.body;
     
-    // Map language to Wandbox compiler
-    const langMap: Record<string, string> = {
-      'PYTHON': 'cpython-3.10.15',
-      'JS': 'nodejs-20.17.0',
-      'JAVASCRIPT': 'nodejs-20.17.0',
-      'JAVA': 'openjdk-jdk-21+35',
-      'CPP': 'gcc-13.2.0',
-      'C++': 'gcc-13.2.0',
-      'C': 'gcc-13.2.0-c'
-    };
-    
-    const normLang = (language || '').toUpperCase().trim();
-    const compiler = langMap[normLang] || langMap['PYTHON'];
+    const evalResult = await evaluateCodingSubmission(
+      language,
+      code,
+      testCases || [],
+      marks || 10
+    );
 
-    // In Wandbox, Java code is compiled into prog.java; removing 'public' before class allows any class name to compile
-    let processedCode = code || '';
-    if (normLang === 'JAVA') {
-      processedCode = processedCode.replace(/public\s+class\s+/g, 'class ');
-    }
-
-    const results = [];
-
-    // Run tests sequentially
-    for (const testCase of (testCases || [])) {
-      try {
-        const payload = {
-          compiler,
-          code: processedCode,
-          stdin: testCase.input !== undefined && testCase.input !== null ? String(testCase.input) : ''
-        };
-        
-        const response = await fetch('https://wandbox.org/api/compile.json', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-
-        if (!response.ok) {
-          const errText = await response.text().catch(() => '');
-          results.push({
-            input: testCase.input,
-            expectedOutput: testCase.expectedOutput,
-            actualOutput: `Execution error (${response.status}): ${errText}`,
-            passed: false,
-            isHidden: testCase.isHidden
-          });
-          continue;
-        }
-        
-        const data = (await response.json()) as any;
-        
-        const rawOutput = (data?.program_output || data?.compiler_error || data?.program_error || '').trim();
-        const expected = (testCase.expectedOutput !== undefined && testCase.expectedOutput !== null ? String(testCase.expectedOutput) : '').trim();
-        const passed = rawOutput === expected;
-        
-        results.push({
-          input: testCase.input,
-          expectedOutput: testCase.expectedOutput,
-          actualOutput: rawOutput,
-          passed,
-          isHidden: testCase.isHidden
-        });
-      } catch (tcErr: any) {
-        results.push({
-          input: testCase.input,
-          expectedOutput: testCase.expectedOutput,
-          actualOutput: tcErr?.message || 'Execution error',
-          passed: false,
-          isHidden: testCase.isHidden
-        });
-      }
-    }
-
-    res.json({ results });
+    res.json({
+      results: evalResult.results,
+      passedCount: evalResult.passedCount,
+      totalCount: evalResult.totalCount,
+      allottedScore: evalResult.allottedScore,
+      maxMarks: evalResult.maxMarks
+    });
   } catch (error) {
     console.error('Code execution error:', error);
     res.status(500).json({ error: 'Failed to execute code' });

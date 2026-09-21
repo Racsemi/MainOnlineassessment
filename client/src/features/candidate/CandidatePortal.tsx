@@ -355,9 +355,10 @@ const CandidatePortal = () => {
       const res = await api.post('/session/execute', {
         language: currentAnswer.language || currentQ.allowedLanguages?.[0] || 'PYTHON',
         code: currentAnswer.textAnswer || '',
-        testCases: currentQ.testCases || []
+        testCases: currentQ.testCases || [],
+        marks: currentQ.marks || 10
       });
-      setExecutionResults(res.data.results);
+      setExecutionResults(res.data.results || []);
     } catch (err: any) {
       console.error(err);
       setExecutionResults([{ passed: false, actualOutput: err.response?.data?.error || 'Execution Error', expectedOutput: '' }]);
@@ -814,9 +815,25 @@ const CandidatePortal = () => {
                 
                 {/* Execution Results Terminal */}
                 <div className="h-48 bg-[#1e1e1e] border-t border-gray-800 p-0 flex flex-col">
-                  <div className="bg-[#2d2d2d] px-4 py-1 border-b border-gray-800 text-xs text-gray-400 font-bold uppercase tracking-wider flex items-center space-x-2">
-                    <Terminal size={14} />
-                    <span>Test Results Console</span>
+                  <div className="bg-[#2d2d2d] px-4 py-1.5 border-b border-gray-800 text-xs text-gray-400 font-bold uppercase tracking-wider flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      <Terminal size={14} />
+                      <span>Test Results Console</span>
+                    </div>
+                    {executionResults.length > 0 && !executing && (
+                      <div className="flex items-center space-x-2 font-mono">
+                        <span className="text-emerald-400 font-bold">
+                          {executionResults.filter((r: any) => r.passed).length} / {executionResults.length} Cases Passed
+                        </span>
+                        <span className="text-gray-400 font-normal">
+                          (Allotted: {executionResults.length > 0 
+                            ? (executionResults.filter((r: any) => r.passed).length === executionResults.length 
+                                ? (currentQ.marks || 10) 
+                                : Math.max(0, Math.round((executionResults.filter((r: any) => r.passed).length / executionResults.length) * (currentQ.marks || 10)))) 
+                            : 0} / {currentQ.marks || 10} marks)
+                        </span>
+                      </div>
+                    )}
                   </div>
                   <div className="flex-1 overflow-y-auto p-4 font-mono text-sm text-gray-300">
                     {executing ? (

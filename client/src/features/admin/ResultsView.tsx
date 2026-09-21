@@ -4,7 +4,7 @@ import {
   Search, Filter, ShieldAlert, X, Eye, Printer, ArrowLeft, Download, 
   AlertTriangle, Check, FileText, Code, CheckCircle, XCircle, Award, 
   User, Clock, Phone, GraduationCap, Building, ExternalLink, RefreshCw,
-  ChevronDown, ChevronUp, Copy
+  ChevronDown, ChevronUp, Copy, Play, Zap
 } from 'lucide-react';
 import api from '../../lib/axios';
 
@@ -24,6 +24,11 @@ const ResultsView: React.FC<ResultsViewProps> = ({ assessmentId: propId }) => {
   const [filterStatus, setFilterStatus] = useState('ALL');
   const [copiedCodeId, setCopiedCodeId] = useState<string | null>(null);
   const [expandedAnswers, setExpandedAnswers] = useState<Record<string, boolean>>({});
+  const [isAutoGradingAll, setIsAutoGradingAll] = useState(false);
+  const [autoGradeMessage, setAutoGradeMessage] = useState<string | null>(null);
+  const [evaluatingSubmissionId, setEvaluatingSubmissionId] = useState<string | null>(null);
+  const [singleTestResults, setSingleTestResults] = useState<Record<string, any>>({});
+
 
   const fetchResults = async () => {
     if (!id) return;
@@ -171,6 +176,76 @@ const ResultsView: React.FC<ResultsViewProps> = ({ assessmentId: propId }) => {
     }
   };
 
+  const handleAutoGradeAllCoding = async () => {
+    if (!window.confirm("Run test cases and allot marks for all candidates' coding submissions? This will compute scores proportionally based on passed test cases.")) {
+      return;
+    }
+    setIsAutoGradingAll(true);
+    setAutoGradeMessage("Evaluating candidate coding submissions against test cases... Please wait.");
+    try {
+      const res = await api.post(`/assessments/${id}/evaluate-coding`);
+      setAutoGradeMessage(res.data?.message || "Successfully evaluated all coding submissions!");
+      await fetchResults();
+      setTimeout(() => setAutoGradeMessage(null), 6000);
+    } catch (err: any) {
+      console.error("Auto grade failed:", err);
+      alert("Failed to auto-evaluate coding submissions: " + (err?.response?.data?.error || err.message));
+      setAutoGradeMessage(null);
+    } finally {
+      setIsAutoGradingAll(false);
+    }
+  };
+
+  const handleEvaluateSingleCoding = async (submissionId: string) => {
+    setEvaluatingSubmissionId(submissionId);
+    try {
+      const res = await api.post(`/assessments/${id}/results/coding/${submissionId}/evaluate`);
+      const { allottedScore, passedCount, totalCount, maxMarks, results, updatedTotalScore } = res.data;
+      
+      // Store test results for UI expansion
+      setSingleTestResults(prev => ({
+        ...prev,
+        [submissionId]: { results, passedCount, totalCount, allottedScore, maxMarks }
+      }));
+
+      // Update active candidate in modal
+      if (selectedCandidate) {
+        const updatedCandidate = { ...selectedCandidate };
+        updatedCandidate.codingSubmissions = (updatedCandidate.codingSubmissions || []).map((cs: any) => 
+          cs.id === submissionId ? { ...cs, score: allottedScore, testResults: results } : cs
+        );
+        const newCoding = updatedCandidate.codingSubmissions.reduce((sum: number, c: any) => sum + (Number(c.score) || 0), 0);
+        updatedCandidate.codingScore = newCoding;
+        if (updatedTotalScore !== undefined) {
+          updatedCandidate.score = updatedTotalScore;
+        } else {
+          updatedCandidate.score = (updatedCandidate.mcqScore || 0) + newCoding;
+        }
+        if (updatedCandidate.maxScore > 0) {
+          updatedCandidate.percentage = Math.round((updatedCandidate.score / updatedCandidate.maxScore) * 1000) / 10;
+        }
+        setSelectedCandidate(updatedCandidate);
+
+        // Update table list state
+        setRawResults(prev => prev.map(r => 
+          (r.id === selectedCandidate.id || r.candidateId === selectedCandidate.candidateId) 
+            ? { 
+                ...r, 
+                score: updatedCandidate.score, 
+                percentage: updatedCandidate.percentage,
+                codingScore: updatedCandidate.codingScore,
+                codingSubmissions: updatedCandidate.codingSubmissions 
+              } 
+            : r
+        ));
+      }
+    } catch (err: any) {
+      alert("Failed to evaluate submission: " + (err?.response?.data?.error || err.message));
+    } finally {
+      setEvaluatingSubmissionId(null);
+    }
+  };
+
   const handleCopyCode = (code: string, id: string) => {
     navigator.clipboard.writeText(code);
     setCopiedCodeId(id);
@@ -271,13 +346,22 @@ const ResultsView: React.FC<ResultsViewProps> = ({ assessmentId: propId }) => {
           <h1 className="text-2xl md:text-3xl font-bold text-dark">Assessment Results & Analytics</h1>
           <p className="text-gray-500 text-sm mt-0.5">Comprehensive performance, answer evaluation, coding solutions, and proctoring reports</p>
         </div>
-        <div className="flex items-center space-x-3">
+        <div className="flex flex-wrap items-center gap-2.5">
           <button 
             onClick={fetchResults}
             className="bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 p-2.5 rounded-xl transition-colors shadow-sm"
             title="Refresh results"
           >
             <RefreshCw size={16} className={loading ? "animate-spin text-primary" : ""} />
+          </button>
+          <button 
+            onClick={handleAutoGradeAllCoding}
+            disabled={isAutoGradingAll || normalizedResults.length === 0}
+            className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2.5 rounded-xl font-bold transition-all shadow-sm flex items-center space-x-2 text-sm disabled:opacity-50"
+            title="Automatically run test cases and allot marks for all candidates"
+          >
+            <Zap size={16} className={isAutoGradingAll ? "animate-spin text-amber-300" : "text-amber-300"} />
+            <span>{isAutoGradingAll ? "Allotting Marks..." : "Auto-Allot Coding Marks"}</span>
           </button>
           <button 
             onClick={handleExportCsv}
@@ -289,6 +373,25 @@ const ResultsView: React.FC<ResultsViewProps> = ({ assessmentId: propId }) => {
           </button>
         </div>
       </div>
+
+      {/* Auto Grade Notification Banner */}
+      {autoGradeMessage && (
+        <div className="mb-6 p-4 bg-purple-50 border border-purple-200 text-purple-900 rounded-xl flex items-center justify-between shadow-sm">
+          <div className="flex items-center space-x-2.5 text-sm font-semibold">
+            {isAutoGradingAll ? (
+              <RefreshCw size={18} className="animate-spin text-purple-600" />
+            ) : (
+              <CheckCircle size={18} className="text-emerald-600" />
+            )}
+            <span>{autoGradeMessage}</span>
+          </div>
+          {!isAutoGradingAll && (
+            <button onClick={() => setAutoGradeMessage(null)} className="text-purple-400 hover:text-purple-600 p-1">
+              <X size={16} />
+            </button>
+          )}
+        </div>
+      )}
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3 md:gap-4 mb-6">
@@ -783,13 +886,26 @@ const ResultsView: React.FC<ResultsViewProps> = ({ assessmentId: propId }) => {
                             </div>
                           </div>
 
-                          <div className="flex items-center space-x-3">
+                          <div className="flex flex-wrap items-center gap-2.5">
+                            {cs.testCases && cs.testCases.length > 0 && (
+                              <button 
+                                onClick={() => handleEvaluateSingleCoding(cs.id)}
+                                disabled={evaluatingSubmissionId === cs.id || !cs.code}
+                                className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm flex items-center space-x-1.5 disabled:opacity-50"
+                                title="Run candidate code against test cases and allot marks"
+                              >
+                                <Play size={13} className={evaluatingSubmissionId === cs.id ? "animate-spin" : ""} />
+                                <span>{evaluatingSubmissionId === cs.id ? "Evaluating..." : "Run & Allot Marks"}</span>
+                              </button>
+                            )}
+
                             <div className="flex items-center space-x-1.5 bg-white px-3 py-1.5 rounded-lg border border-gray-200 shadow-sm">
-                              <span className="text-xs text-gray-500 font-bold">Grade:</span>
+                              <span className="text-xs text-gray-500 font-bold">Marks:</span>
                               <input 
                                 type="number" 
                                 className="w-16 px-2 py-1 text-xs font-bold text-center border border-gray-300 rounded focus:border-primary outline-none"
                                 defaultValue={cs.score ?? 0}
+                                key={`score-${cs.id}-${cs.score}`}
                                 onBlur={(e) => handleScoreUpdate(cs.id, true, Number(e.target.value))}
                                 step="1"
                                 title="Edit score to update candidate's total marks"
@@ -819,25 +935,69 @@ const ResultsView: React.FC<ResultsViewProps> = ({ assessmentId: propId }) => {
                           <pre className="whitespace-pre-wrap leading-relaxed">{cs.code || '// No code submitted by candidate'}</pre>
                         </div>
 
-                        {/* Test Cases Info if configured */}
-                        {cs.testCases && cs.testCases.length > 0 && (
-                          <div className="p-4 bg-gray-50 border-t border-gray-200">
-                            <div className="text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">Test Cases Configuration ({cs.testCases.length}):</div>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                              {cs.testCases.map((tc: any, tcIdx: number) => (
-                                <div key={tcIdx} className="bg-white p-2.5 rounded border border-gray-200">
-                                  <div className="font-bold text-gray-600 mb-1 flex justify-between">
-                                    <span>Case {tcIdx + 1} {tc.isHidden && <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.2 rounded font-normal">Hidden</span>}</span>
-                                  </div>
-                                  <div className="font-mono text-[11px] space-y-1">
-                                    <div><span className="text-gray-400">In:</span> {tc.input || '(empty)'}</div>
-                                    <div><span className="text-emerald-600">Expected:</span> {tc.expectedOutput}</div>
-                                  </div>
+                        {/* Test Cases Info & Results */}
+                        {cs.testCases && cs.testCases.length > 0 && (() => {
+                          const runInfo = singleTestResults[cs.id];
+                          return (
+                            <div className="p-4 bg-gray-50 border-t border-gray-200">
+                              <div className="flex flex-wrap justify-between items-center gap-2 mb-3">
+                                <div className="text-xs font-bold text-gray-700 uppercase tracking-wider">
+                                  Test Cases ({cs.testCases.length}):
                                 </div>
-                              ))}
+                                {runInfo && (
+                                  <span className="text-xs font-bold px-2.5 py-1 rounded bg-purple-100 text-purple-800 flex items-center space-x-1.5">
+                                    <CheckCircle size={13} className="text-purple-600" />
+                                    <span>
+                                      Passed {runInfo.passedCount} / {runInfo.totalCount} Cases • Allotted: {runInfo.allottedScore} / {runInfo.maxMarks} marks
+                                    </span>
+                                  </span>
+                                )}
+                              </div>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
+                                {cs.testCases.map((tc: any, tcIdx: number) => {
+                                  const runRes = runInfo?.results?.[tcIdx];
+                                  const isRun = !!runRes;
+                                  const passed = runRes?.passed;
+
+                                  return (
+                                    <div 
+                                      key={tcIdx} 
+                                      className={`p-3 rounded-lg border transition-all ${
+                                        isRun 
+                                          ? (passed ? 'bg-emerald-50/70 border-emerald-300' : 'bg-red-50/70 border-red-300')
+                                          : 'bg-white border-gray-200'
+                                      }`}
+                                    >
+                                      <div className="font-bold text-gray-700 mb-1.5 flex justify-between items-center">
+                                        <span className="flex items-center space-x-1.5">
+                                          {isRun ? (
+                                            passed ? <CheckCircle size={14} className="text-emerald-600" /> : <XCircle size={14} className="text-red-600" />
+                                          ) : null}
+                                          <span>Case {tcIdx + 1}</span>
+                                          {tc.isHidden && <span className="text-[10px] bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded font-normal">Hidden</span>}
+                                        </span>
+                                        {isRun && (
+                                          <span className={`text-[11px] font-bold ${passed ? 'text-emerald-700' : 'text-red-700'}`}>
+                                            {passed ? '✓ Passed' : '✗ Failed'}
+                                          </span>
+                                        )}
+                                      </div>
+                                      <div className="font-mono text-[11px] space-y-1">
+                                        <div><span className="text-gray-400">In:</span> {tc.input || '(empty)'}</div>
+                                        <div><span className="text-emerald-600">Expected:</span> {tc.expectedOutput}</div>
+                                        {isRun && (
+                                          <div className={passed ? 'text-emerald-700' : 'text-red-700'}>
+                                            <span className="text-gray-400">Actual:</span> {runRes.actualOutput || '(no output)'}
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
                             </div>
-                          </div>
-                        )}
+                          );
+                        })()}
                       </div>
                     ))
                   )}

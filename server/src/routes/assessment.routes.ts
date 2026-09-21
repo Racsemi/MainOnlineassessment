@@ -9,7 +9,9 @@ import {
   getPublicAssessment,
   deleteAssessment,
   updateResultStatus,
-  updateAnswerScore
+  updateAnswerScore,
+  evaluateAllAssessmentCodingSubmissions,
+  evaluateSingleCodingSubmission
 } from '../controllers/assessment.controller';
 
 const router = Router();
@@ -24,9 +26,12 @@ router.post('/', createAssessment);
 router.get('/', getAssessments);
 router.get('/:id', getAssessmentById);
 router.get('/:id/results', getAssessmentResults);
+router.post('/:id/evaluate-coding', evaluateAllAssessmentCodingSubmissions);
+router.post('/:id/results/coding/:submissionId/evaluate', evaluateSingleCodingSubmission);
 router.put('/:id/results/:resultId/status', updateResultStatus);
 router.put('/:id/results/:resultId/answers/:answerId/score', updateAnswerScore);
 router.put('/:id', updateAssessment);
 router.delete('/:id', deleteAssessment);
 
 export default router;
+
