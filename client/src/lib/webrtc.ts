@@ -27,19 +27,38 @@ export class WebRTCManager {
   async getLocalMedia(video = true, audio = true): Promise<MediaStream | null> {
     try {
       if (this.localStream) {
+        this.toggleVideo(video);
+        this.toggleAudio(audio);
         return this.localStream;
       }
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: video ? { width: { ideal: 1280 }, height: { ideal: 720 } } : false,
-        audio: audio,
+        video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: true,
       });
       this.localStream = stream;
+      
+      // Apply initial mute/cam-off states
+      stream.getVideoTracks().forEach((track) => {
+        track.enabled = video;
+      });
+      stream.getAudioTracks().forEach((track) => {
+        track.enabled = audio;
+      });
+
       return stream;
     } catch (err) {
-      console.warn('[WebRTC] getUserMedia failed or was denied:', err);
-      return null;
+      console.warn('[WebRTC] getUserMedia with video failed, falling back to audio only:', err);
+      try {
+        const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        this.localStream = audioStream;
+        return audioStream;
+      } catch (audioErr) {
+        console.warn('[WebRTC] audio getUserMedia also denied:', audioErr);
+        return null;
+      }
     }
   }
+
 
   initPeerConnection(isInitiator: boolean): RTCPeerConnection {
     if (this.pc) {
