@@ -55,8 +55,8 @@ export const InterviewScorecardModal: React.FC<ScorecardModalProps> = ({
   };
 
   const renderStarRating = (value: number, setter: (v: number) => void, label: string) => (
-    <div className="flex items-center justify-between py-2 border-b border-white/5">
-      <span className="text-xs font-semibold text-slate-300">{label}</span>
+    <div className="flex items-center justify-between py-2 border-b border-slate-100">
+      <span className="text-xs font-semibold text-slate-700">{label}</span>
       <div className="flex items-center space-x-1">
         {[1, 2, 3, 4, 5].map((star) => (
           <button
@@ -68,12 +68,12 @@ export const InterviewScorecardModal: React.FC<ScorecardModalProps> = ({
             <Star
               size={18}
               className={`${
-                star <= value ? 'text-amber-400 fill-amber-400' : 'text-slate-600'
+                star <= value ? 'text-amber-400 fill-amber-400' : 'text-slate-200'
               } transition-colors`}
             />
           </button>
         ))}
-        <span className="text-xs font-mono font-bold text-slate-400 ml-2 w-4 text-right">
+        <span className="text-xs font-mono font-bold text-slate-600 ml-2 w-4 text-right">
           {value}
         </span>
       </div>
@@ -81,24 +81,24 @@ export const InterviewScorecardModal: React.FC<ScorecardModalProps> = ({
   );
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
-      <div className="bg-slate-900 border border-white/15 rounded-2xl w-full max-w-lg p-6 shadow-2xl space-y-5">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in font-sans">
+      <div className="bg-white border border-slate-200 rounded-3xl w-full max-w-lg p-6 shadow-2xl space-y-5">
         
         {/* Header */}
-        <div className="flex items-start justify-between">
+        <div className="flex items-start justify-between pb-3 border-b border-slate-100">
           <div className="flex items-center space-x-3">
-            <div className="p-2.5 rounded-xl bg-primary/10 text-primary border border-primary/20">
+            <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
               <Award size={22} />
             </div>
             <div>
-              <h3 className="text-base font-bold text-white">Interview Evaluation Scorecard</h3>
-              <p className="text-xs text-slate-400">Candidate: <span className="text-white font-semibold">{candidateName}</span></p>
+              <h3 className="text-base font-bold text-slate-900">Evaluation Scorecard</h3>
+              <p className="text-xs text-slate-500">Candidate: <span className="text-slate-900 font-semibold">{candidateName}</span></p>
             </div>
           </div>
 
           <button
             onClick={onClose}
-            className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors"
+            className="text-slate-400 hover:text-slate-700 p-1.5 rounded-lg hover:bg-slate-100 transition-colors"
           >
             <X size={18} />
           </button>
@@ -107,7 +107,7 @@ export const InterviewScorecardModal: React.FC<ScorecardModalProps> = ({
         <form onSubmit={handleSubmit} className="space-y-4">
           
           {/* Rubrics */}
-          <div className="bg-slate-950/70 border border-white/10 rounded-xl p-4 space-y-1">
+          <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-1">
             {renderStarRating(problemSolving, setProblemSolving, 'Problem Solving & Logic')}
             {renderStarRating(codeQuality, setCodeQuality, 'Code Quality & Cleanliness')}
             {renderStarRating(communication, setCommunication, 'Technical Communication')}
@@ -116,22 +116,22 @@ export const InterviewScorecardModal: React.FC<ScorecardModalProps> = ({
 
           {/* Recommendation */}
           <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-2">Hiring Recommendation</label>
+            <label className="block text-xs font-semibold text-slate-700 mb-2">Hiring Recommendation</label>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {[
-                { id: 'STRONG_HIRE', label: 'Strong Hire', color: 'border-emerald-500 bg-emerald-500/20 text-emerald-300' },
-                { id: 'HIRE', label: 'Hire', color: 'border-blue-500 bg-blue-500/20 text-blue-300' },
-                { id: 'CONSIDER', label: 'Consider', color: 'border-amber-500 bg-amber-500/20 text-amber-300' },
-                { id: 'REJECT', label: 'Reject', color: 'border-red-500 bg-red-500/20 text-red-300' },
+                { id: 'STRONG_HIRE', label: 'Strong Hire', color: 'border-emerald-500 bg-emerald-50 text-emerald-800' },
+                { id: 'HIRE', label: 'Hire', color: 'border-blue-500 bg-blue-50 text-blue-800' },
+                { id: 'CONSIDER', label: 'Consider', color: 'border-amber-500 bg-amber-50 text-amber-800' },
+                { id: 'REJECT', label: 'Reject', color: 'border-red-500 bg-red-50 text-red-800' },
               ].map((rec) => (
                 <button
                   key={rec.id}
                   type="button"
                   onClick={() => setRecommendation(rec.id as any)}
-                  className={`py-2 px-2.5 rounded-xl text-xs font-bold border transition-all ${
+                  className={`py-2 px-2 rounded-xl text-xs font-bold border transition-all ${
                     recommendation === rec.id
-                      ? `${rec.color} ring-2 ring-white/20`
-                      : 'bg-slate-950/60 border-white/10 text-slate-400 hover:text-white'
+                      ? `${rec.color} ring-2 ring-primary/20 shadow-sm`
+                      : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
                   }`}
                 >
                   {rec.label}
@@ -143,10 +143,10 @@ export const InterviewScorecardModal: React.FC<ScorecardModalProps> = ({
           {/* Private Notes */}
           <div>
             <div className="flex items-center justify-between mb-1">
-              <label className="text-xs font-semibold text-slate-300">Interviewer Private Notes</label>
-              <span className="text-[10px] text-slate-500 flex items-center space-x-1">
+              <label className="text-xs font-semibold text-slate-700">Interviewer Private Notes</label>
+              <span className="text-[10px] text-slate-400 flex items-center space-x-1">
                 <ShieldAlert size={12} className="text-primary" />
-                <span>Confidential (Admin only)</span>
+                <span>Confidential (Not visible to candidate)</span>
               </span>
             </div>
             <textarea
@@ -154,22 +154,22 @@ export const InterviewScorecardModal: React.FC<ScorecardModalProps> = ({
               value={feedback}
               onChange={(e) => setFeedback(e.target.value)}
               placeholder="Provide comments on problem approach, code elegance, edge-case testing, etc..."
-              className="w-full bg-slate-950 border border-white/10 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-primary transition-colors"
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-900 focus:outline-none focus:border-primary focus:bg-white transition-all"
             />
           </div>
 
           {/* Action buttons */}
-          <div className="flex items-center justify-end space-x-3 pt-3 border-t border-white/10">
+          <div className="flex items-center justify-end space-x-3 pt-3 border-t border-slate-100">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 rounded-xl text-xs font-medium text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+              className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition-colors"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="flex items-center space-x-1.5 px-4 py-2 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white shadow-md transition-all"
+              className="flex items-center space-x-1.5 px-4 py-2 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition-all"
             >
               <Check size={15} />
               <span>Submit & Conclude Interview</span>

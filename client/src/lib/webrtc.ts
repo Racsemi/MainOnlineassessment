@@ -24,41 +24,98 @@ export class WebRTCManager {
     this.onSignalCallback = onSignal;
   }
 
+  /**
+   * Acquire media. If video=false, we DO NOT request video hardware at all.
+   * This ensures the webcam LED light does NOT turn on.
+   */
   async getLocalMedia(video = true, audio = true): Promise<MediaStream | null> {
     try {
       if (this.localStream) {
-        this.toggleVideo(video);
+        if (!video) {
+          this.stopCameraHardware();
+        }
         this.toggleAudio(audio);
         return this.localStream;
       }
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 1280 }, height: { ideal: 720 } },
-        audio: true,
-      });
-      this.localStream = stream;
-      
-      // Apply initial mute/cam-off states
-      stream.getVideoTracks().forEach((track) => {
-        track.enabled = video;
-      });
-      stream.getAudioTracks().forEach((track) => {
-        track.enabled = audio;
-      });
 
+      // Explicitly request video only if true
+      const constraints: MediaStreamConstraints = {
+        audio: audio,
+        video: video ? { width: { ideal: 1280 }, height: { ideal: 720 } } : false,
+      };
+
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      this.localStream = stream;
       return stream;
     } catch (err) {
-      console.warn('[WebRTC] getUserMedia with video failed, falling back to audio only:', err);
+      console.warn('[WebRTC] Initial getUserMedia failed, attempting fallback to audio only:', err);
       try {
         const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
         this.localStream = audioStream;
         return audioStream;
       } catch (audioErr) {
-        console.warn('[WebRTC] audio getUserMedia also denied:', audioErr);
+        console.warn('[WebRTC] Audio getUserMedia also denied:', audioErr);
         return null;
       }
     }
   }
 
+  /**
+   * Dynamically activate the physical camera hardware
+   */
+  async startCameraHardware(): Promise<MediaStreamTrack | null> {
+    try {
+      const videoStream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+      });
+      const newTrack = videoStream.getVideoTracks()[0];
+      if (!newTrack) return null;
+
+      if (!this.localStream) {
+        this.localStream = new MediaStream();
+      }
+
+      // Stop any stale video tracks first
+      this.localStream.getVideoTracks().forEach((t) => t.stop());
+      this.localStream.addTrack(newTrack);
+
+      if (this.pc) {
+        const senders = this.pc.getSenders();
+        const videoSender = senders.find((s) => s.track?.kind === 'video');
+        if (videoSender) {
+          await videoSender.replaceTrack(newTrack);
+        } else {
+          this.pc.addTrack(newTrack, this.localStream);
+        }
+      }
+
+      return newTrack;
+    } catch (err) {
+      console.warn('[WebRTC] Could not turn on physical camera:', err);
+      return null;
+    }
+  }
+
+  /**
+   * Physically stop the webcam hardware (turns off the green LED light!)
+   */
+  stopCameraHardware(): void {
+    if (this.localStream) {
+      const videoTracks = this.localStream.getVideoTracks();
+      videoTracks.forEach((track) => {
+        track.stop(); // PHYSICALLY TURNS OFF WEBCAM HARDWARE
+        this.localStream?.removeTrack(track);
+      });
+
+      if (this.pc) {
+        const senders = this.pc.getSenders();
+        const videoSender = senders.find((s) => s.track?.kind === 'video');
+        if (videoSender) {
+          videoSender.replaceTrack(null);
+        }
+      }
+    }
+  }
 
   initPeerConnection(isInitiator: boolean): RTCPeerConnection {
     if (this.pc) {
@@ -91,7 +148,6 @@ export class WebRTCManager {
       }
     };
 
-    // If initiator, create and send Offer
     if (isInitiator) {
       this.createOffer();
     }
@@ -129,7 +185,6 @@ export class WebRTCManager {
             sdp: this.pc?.localDescription,
           });
         }
-
       } else if (signalData.type === 'answer') {
         await this.pc?.setRemoteDescription(new RTCSessionDescription(signalData.sdp));
       } else if (signalData.type === 'candidate' && signalData.candidate) {
@@ -148,11 +203,11 @@ export class WebRTCManager {
     }
   }
 
-  toggleVideo(enabled: boolean): void {
-    if (this.localStream) {
-      this.localStream.getVideoTracks().forEach((track) => {
-        track.enabled = enabled;
-      });
+  async toggleVideo(enabled: boolean): Promise<void> {
+    if (enabled) {
+      await this.startCameraHardware();
+    } else {
+      this.stopCameraHardware();
     }
   }
 
@@ -188,13 +243,11 @@ export class WebRTCManager {
     }
 
     if (this.localStream && this.pc) {
-      const cameraTrack = this.localStream.getVideoTracks()[0];
-      if (cameraTrack) {
-        const senders = this.pc.getSenders();
-        const videoSender = senders.find((s) => s.track?.kind === 'video');
-        if (videoSender) {
-          videoSender.replaceTrack(cameraTrack);
-        }
+      const cameraTrack = this.localStream.getVideoTracks()[0] || null;
+      const senders = this.pc.getSenders();
+      const videoSender = senders.find((s) => s.track?.kind === 'video');
+      if (videoSender) {
+        videoSender.replaceTrack(cameraTrack);
       }
     }
   }

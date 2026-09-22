@@ -406,22 +406,33 @@ export const LiveInterviewRoom: React.FC = () => {
     handleSendReaction(nextState ? '✋ Raised Hand' : 'Lowered Hand');
   };
 
-  // Media Controls: Proper Camera State with localStorage persistence!
-  const toggleVideo = () => {
+  // Media Controls: Physical Camera Hardware Shutdown & localStorage persistence!
+  const toggleVideo = async () => {
     if (!isAdmin && !permissions.candidateVideoAllowed) {
       alert('Your camera has been disabled by the host.');
       return;
     }
     const nextVideo = !localVideo;
     if (rtcManagerRef.current) {
-      rtcManagerRef.current.toggleVideo(nextVideo);
+      await rtcManagerRef.current.toggleVideo(nextVideo);
       setLocalVideo(nextVideo);
+      if (nextVideo) {
+        const stream = await rtcManagerRef.current.getLocalMedia(true, localAudio);
+        if (stream && localVideoRef.current) {
+          localVideoRef.current.srcObject = stream;
+        }
+      } else {
+        if (localVideoRef.current) {
+          localVideoRef.current.srcObject = null;
+        }
+      }
     }
     if (isAdmin) {
       // Save preference so reloads respect the user's manual choice
       localStorage.setItem('racsemi_admin_cam', String(nextVideo));
     }
   };
+
 
   const toggleMic = () => {
     if (!isAdmin && !permissions.candidateAudioAllowed) {
