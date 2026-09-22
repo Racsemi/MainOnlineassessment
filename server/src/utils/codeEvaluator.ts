@@ -20,6 +20,8 @@ export interface TestCaseResult {
   input: string;
   expectedOutput: string;
   actualOutput: string;
+  compilerError?: string;
+  executionTimeMs?: number;
   passed: boolean;
   isHidden?: boolean;
 }
@@ -30,6 +32,7 @@ export interface EvaluationResult {
   totalCount: number;
   allottedScore: number;
   maxMarks: number;
+  totalTimeMs?: number;
 }
 
 /**
@@ -58,7 +61,7 @@ export function prepareCode(code: string, language: string): string {
 }
 
 /**
- * Executes a single test case using the Wandbox API with a 10s timeout.
+ * Executes a single test case using the Wandbox API with a 10s timeout and timing.
  */
 export async function runSingleTestCase(
   compiler: string,
@@ -70,6 +73,7 @@ export async function runSingleTestCase(
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 10000);
+  const startTime = Date.now();
 
   try {
     const payload = {
@@ -86,6 +90,7 @@ export async function runSingleTestCase(
     });
 
     clearTimeout(timeoutId);
+    const duration = Date.now() - startTime;
 
     if (!response.ok) {
       const errText = await response.text().catch(() => '');
@@ -93,28 +98,38 @@ export async function runSingleTestCase(
         input: inputStr,
         expectedOutput: expectedStr,
         actualOutput: `Execution error (${response.status}): ${errText}`,
+        compilerError: errText,
+        executionTimeMs: duration,
         passed: false,
         isHidden: !!testCase.isHidden
       };
     }
 
     const data = (await response.json()) as any;
-    const rawOutput = (data?.program_output || data?.compiler_error || data?.program_error || '').trim();
+    const stdout = (data?.program_output || '').trim();
+    const stderr = (data?.program_error || '').trim();
+    const compilerErr = (data?.compiler_error || '').trim();
+    const rawOutput = (stdout || compilerErr || stderr || '').trim();
     const passed = normalizeOutput(rawOutput) === normalizeOutput(expectedStr);
 
     return {
       input: inputStr,
       expectedOutput: expectedStr,
       actualOutput: rawOutput,
+      compilerError: compilerErr || stderr || undefined,
+      executionTimeMs: duration,
       passed,
       isHidden: !!testCase.isHidden
     };
   } catch (err: any) {
     clearTimeout(timeoutId);
+    const duration = Date.now() - startTime;
     return {
       input: inputStr,
       expectedOutput: expectedStr,
       actualOutput: err.name === 'AbortError' ? 'Execution Timed Out (10s limit)' : (err?.message || 'Execution error'),
+      compilerError: err?.message,
+      executionTimeMs: duration,
       passed: false,
       isHidden: !!testCase.isHidden
     };
@@ -123,11 +138,6 @@ export async function runSingleTestCase(
 
 /**
  * Runs code against an array of test cases and allots marks proportionally based on passed test cases.
- * Formula:
- * - If totalTestCases === 0: 0 marks
- * - If passedCount === totalTestCases: maxMarks
- * - If passedCount === 0: 0 marks
- * - Otherwise: Math.max(1, Math.round((passedCount / totalCount) * maxMarks))
  */
 export async function evaluateCodingSubmission(
   language: string,
@@ -151,11 +161,13 @@ export async function evaluateCodingSubmission(
       passedCount: 0,
       totalCount: testCases?.length || 0,
       allottedScore: 0,
-      maxMarks
+      maxMarks,
+      totalTimeMs: 0
     };
   }
 
   const results: TestCaseResult[] = [];
+  const evalStartTime = Date.now();
 
   // Run test cases sequentially to avoid rate-limiting Wandbox
   for (const tc of testCases) {
@@ -165,6 +177,7 @@ export async function evaluateCodingSubmission(
 
   const passedCount = results.filter(r => r.passed).length;
   const totalCount = results.length;
+  const totalTimeMs = Date.now() - evalStartTime;
 
   let allottedScore = 0;
   if (totalCount > 0) {
@@ -173,7 +186,6 @@ export async function evaluateCodingSubmission(
     } else if (passedCount === 0) {
       allottedScore = 0;
     } else {
-      // Proportional allotment rounded to nearest integer with minimum of 1 if at least one passed
       allottedScore = Math.max(1, Math.round((passedCount / totalCount) * maxMarks));
     }
   }
@@ -183,6 +195,33 @@ export async function evaluateCodingSubmission(
     passedCount,
     totalCount,
     allottedScore,
-    maxMarks
+    maxMarks,
+    totalTimeMs
   };
 }
+
+/**
+ * Runs code with custom stdin input for admin testing.
+ */
+export async function runCustomExecution(
+  language: string,
+  code: string,
+  customStdin: string = ''
+): Promise<{ output: string; compilerError?: string; executionTimeMs: number; success: boolean }> {
+  const normLang = (language || '').toUpperCase().trim();
+  const compiler = COMPILER_MAP[normLang] || COMPILER_MAP['PYTHON'];
+  const processedCode = prepareCode(code, normLang);
+
+  const res = await runSingleTestCase(compiler, processedCode, {
+    input: customStdin,
+    expectedOutput: ''
+  });
+
+  return {
+    output: res.actualOutput,
+    compilerError: res.compilerError,
+    executionTimeMs: res.executionTimeMs || 0,
+    success: !res.compilerError && !res.actualOutput.includes('Execution error')
+  };
+}
+

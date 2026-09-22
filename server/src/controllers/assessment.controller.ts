@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import prisma from '../utils/db';
-import { evaluateCodingSubmission } from '../utils/codeEvaluator';
+import { evaluateCodingSubmission, runCustomExecution } from '../utils/codeEvaluator';
 
 export const createAssessment = async (req: Request, res: Response) => {
   try {
@@ -552,6 +552,7 @@ export const evaluateAllAssessmentCodingSubmissions = async (req: Request, res: 
 export const evaluateSingleCodingSubmission = async (req: Request, res: Response) => {
   try {
     const { submissionId } = req.params;
+    const { code, language, customStdin, saveScore = true } = req.body;
 
     const submission = await prisma.codingSubmission.findUnique({
       where: { id: submissionId },
@@ -576,40 +577,59 @@ export const evaluateSingleCodingSubmission = async (req: Request, res: Response
     const cq = submission.codingQuestion as any;
     const maxMarks = cq?.marks || 10;
     const testCases = cq?.testCases || [];
+    const codeToRun = code !== undefined ? code : submission.code;
+    const langToRun = language || submission.language;
 
+    // If admin is running a custom test case with custom stdin
+    if (customStdin !== undefined) {
+      const customRes = await runCustomExecution(langToRun, codeToRun, customStdin);
+      return res.json({
+        success: true,
+        isCustom: true,
+        submissionId,
+        customStdin,
+        result: customRes
+      });
+    }
+
+    // Standard test cases evaluation
     const evalResult = await evaluateCodingSubmission(
-      submission.language,
-      submission.code,
+      langToRun,
+      codeToRun,
       testCases,
       maxMarks
     );
 
-    // Update submission score
-    await prisma.codingSubmission.update({
-      where: { id: submissionId },
-      data: { score: evalResult.allottedScore }
-    });
-
-    // Recalculate Candidate total score and percentage
-    const session = submission.session;
-    const mcqScore = session.answers.reduce((sum, a) => sum + (a.score || 0), 0);
-    const otherCodingScore = session.codingAnswers
-      .filter(c => c.id !== submissionId)
-      .reduce((sum, c) => sum + (c.score || 0), 0);
-
-    const newTotal = mcqScore + otherCodingScore + evalResult.allottedScore;
-
-    let result = await prisma.assessmentResult.findFirst({
-      where: { candidateId: session.candidateId, assessmentId: session.candidate.assessmentId }
-    });
-
     let updatedResult = null;
-    if (result) {
-      const percentage = result.maxScore > 0 ? (newTotal / result.maxScore) * 100 : 0;
-      updatedResult = await prisma.assessmentResult.update({
-        where: { id: result.id },
-        data: { totalScore: newTotal, percentage }
+    let newTotal = undefined;
+
+    if (saveScore) {
+      // Update submission score
+      await prisma.codingSubmission.update({
+        where: { id: submissionId },
+        data: { score: evalResult.allottedScore }
       });
+
+      // Recalculate Candidate total score and percentage
+      const session = submission.session;
+      const mcqScore = session.answers.reduce((sum, a) => sum + (a.score || 0), 0);
+      const otherCodingScore = session.codingAnswers
+        .filter(c => c.id !== submissionId)
+        .reduce((sum, c) => sum + (c.score || 0), 0);
+
+      newTotal = mcqScore + otherCodingScore + evalResult.allottedScore;
+
+      let result = await prisma.assessmentResult.findFirst({
+        where: { candidateId: session.candidateId, assessmentId: session.candidate.assessmentId }
+      });
+
+      if (result) {
+        const percentage = result.maxScore > 0 ? (newTotal / result.maxScore) * 100 : 0;
+        updatedResult = await prisma.assessmentResult.update({
+          where: { id: result.id },
+          data: { totalScore: newTotal, percentage }
+        });
+      }
     }
 
     res.json({
@@ -620,6 +640,7 @@ export const evaluateSingleCodingSubmission = async (req: Request, res: Response
       totalCount: evalResult.totalCount,
       maxMarks: evalResult.maxMarks,
       results: evalResult.results,
+      totalTimeMs: evalResult.totalTimeMs,
       updatedTotalScore: newTotal,
       updatedResult
     });
