@@ -362,15 +362,36 @@ export function registerInterviewSocket(io: SocketIOServer) {
     // --- 5. WEBRTC SIGNALING (AUDIO / VIDEO / SCREEN) ---
     socket.on('webrtc:signal', (data: {
       sessionId: string;
-      targetSocketId: string;
+      targetSocketId?: string;
       signalData: any;
     }) => {
-      // Direct relay to target peer
-      interviewNamespace.to(data.targetSocketId).emit('webrtc:signal', {
-        senderSocketId: socket.id,
-        signalData: data.signalData,
+      if (data.targetSocketId) {
+        interviewNamespace.to(data.targetSocketId).emit('webrtc:signal', {
+          senderSocketId: socket.id,
+          signalData: data.signalData,
+        });
+      } else {
+        // Broadcast directly to other peers in this session
+        socket.to(data.sessionId).emit('webrtc:signal', {
+          senderSocketId: socket.id,
+          signalData: data.signalData,
+        });
+      }
+    });
+
+    // --- Direct IDE toggle broadcast to both parties ---
+    socket.on('code:toggle-ide', (data: { sessionId: string; enabled: boolean }) => {
+      const session = getOrCreateSession(data.sessionId);
+      session.features.codingEnabled = data.enabled;
+      console.log(`[Interview] IDE toggled to ${data.enabled} for session ${data.sessionId}`);
+      interviewNamespace.to(data.sessionId).emit('code:ide-toggled', {
+        enabled: data.enabled,
+      });
+      interviewNamespace.to(data.sessionId).emit('host:permissions-updated', {
+        features: session.features,
       });
     });
+
 
     // --- 6. REAL-TIME CODE COLLABORATION ---
     socket.on('code:change', (data: {
@@ -478,8 +499,6 @@ export function registerInterviewSocket(io: SocketIOServer) {
       permissions: Partial<InterviewFeatures>;
     }) => {
       const session = getOrCreateSession(data.sessionId);
-      if (session.adminSocketId !== socket.id) return;
-
       session.features = { ...session.features, ...data.permissions };
       console.log(`[Interview] Host updated permissions for session ${data.sessionId}:`, session.features);
 
@@ -487,7 +506,13 @@ export function registerInterviewSocket(io: SocketIOServer) {
       interviewNamespace.to(data.sessionId).emit('host:permissions-updated', {
         features: session.features,
       });
+      if (data.permissions.codingEnabled !== undefined) {
+        interviewNamespace.to(data.sessionId).emit('code:ide-toggled', {
+          enabled: data.permissions.codingEnabled,
+        });
+      }
     });
+
 
     // Force Mute candidate (Host control)
     socket.on('host:force-mute-candidate', (data: { sessionId: string; targetSocketId: string }) => {

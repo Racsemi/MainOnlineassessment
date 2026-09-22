@@ -110,11 +110,13 @@ export const LiveInterviewRoom: React.FC = () => {
   // Refs
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const rtcManagerRef = useRef<WebRTCManager | null>(null);
   const isUpdatingFromSocketRef = useRef(false);
   const chatBottomRef = useRef<HTMLDivElement | null>(null);
 
   const candidateInviteUrl = `${window.location.origin}/interview/lobby/${sessionId}`;
+
 
   // Helper to trigger maximize / fullscreen
   const triggerMaximizeScreen = () => {
@@ -176,13 +178,17 @@ export const LiveInterviewRoom: React.FC = () => {
       (remoteStream) => {
         if (remoteVideoRef.current) {
           remoteVideoRef.current.srcObject = remoteStream;
-          setIsPeerConnected(true);
+          remoteVideoRef.current.play().catch(() => {});
         }
+        if (remoteAudioRef.current) {
+          remoteAudioRef.current.srcObject = remoteStream;
+          remoteAudioRef.current.play().catch((err) => console.log('Remote audio play:', err));
+        }
+        setIsPeerConnected(true);
       },
       (signal) => {
         socket.emit('webrtc:signal', {
           sessionId,
-          targetSocketId: '',
           signalData: signal,
         });
       }
@@ -244,6 +250,12 @@ export const LiveInterviewRoom: React.FC = () => {
       await rtc.handleSignal(data.signalData);
     });
 
+    // IDE Toggled event for both parties!
+    socket.on('code:ide-toggled', (data: { enabled: boolean }) => {
+      console.log('[Room] Received code:ide-toggled:', data.enabled);
+      setPermissions((prev) => ({ ...prev, codingEnabled: data.enabled }));
+    });
+
     // Host permissions update
     socket.on('host:permissions-updated', (data: any) => {
       setPermissions(data.features);
@@ -252,6 +264,7 @@ export const LiveInterviewRoom: React.FC = () => {
         setLocalAudio(false);
       }
     });
+
 
     socket.on('host:forced-mute', () => {
       if (!isAdmin) {
@@ -361,8 +374,15 @@ export const LiveInterviewRoom: React.FC = () => {
   };
 
   const handleToggleCodingRound = () => {
-    updateHostPermissions({ codingEnabled: !permissions.codingEnabled });
+    const nextState = !permissions.codingEnabled;
+    setPermissions((prev) => ({ ...prev, codingEnabled: nextState }));
+    const socket = getInterviewSocket();
+    socket.emit('code:toggle-ide', {
+      sessionId,
+      enabled: nextState,
+    });
   };
+
 
   const handleForceMuteCandidate = (socketId: string) => {
     if (!isAdmin) return;
@@ -495,6 +515,9 @@ export const LiveInterviewRoom: React.FC = () => {
   const handleAdmitCandidate = (candidateSocketId: string) => {
     const socket = getInterviewSocket();
     socket.emit('interview:admit', { sessionId, candidateSocketId });
+    if (rtcManagerRef.current) {
+      rtcManagerRef.current.initPeerConnection(true);
+    }
     startCountdown();
   };
 
@@ -524,9 +547,12 @@ export const LiveInterviewRoom: React.FC = () => {
 
   return (
     <div className="h-screen w-screen bg-slate-100 text-slate-800 flex flex-col overflow-hidden font-sans selection:bg-primary selection:text-white">
+      {/* Hidden dedicated audio playback element for remote peer */}
+      <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
       
       {/* 1. Clean Executive Header (Light Theme) */}
       <header className="h-16 border-b border-slate-200 bg-white px-5 flex items-center justify-between flex-shrink-0 z-20 shadow-sm">
+
         <div className="flex items-center space-x-3">
           <img src="/logo2.png" alt="Racsemi" className="h-8 w-8 object-contain" />
           <div>

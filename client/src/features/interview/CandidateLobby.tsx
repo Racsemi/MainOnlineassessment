@@ -2,8 +2,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { 
   Video, VideoOff, Mic, MicOff, Volume2, ShieldCheck, 
-  Users, Clock, Sparkles, AlertCircle, ArrowRight, CheckCircle2, Loader2, User
+  Users, Clock, Sparkles, AlertCircle, ArrowRight, CheckCircle2, Loader2, User, PlayCircle
 } from 'lucide-react';
+
 import { getInterviewSocket } from '../../lib/socket';
 import api from '../../lib/axios';
 
@@ -176,6 +177,29 @@ export const CandidateLobby: React.FC = () => {
     } catch (e) {}
   };
 
+  // 20-Second Candidate Entry Countdown
+  const [isAdmitted, setIsAdmitted] = useState(false);
+  const [admittedCountdown, setAdmittedCountdown] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (admittedCountdown === null) return;
+    if (admittedCountdown <= 0) {
+      enterInterviewRoom();
+      return;
+    }
+    const timer = setInterval(() => {
+      setAdmittedCountdown((prev) => (prev !== null ? prev - 1 : null));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [admittedCountdown]);
+
+  const enterInterviewRoom = () => {
+    try {
+      document.documentElement.requestFullscreen().catch(() => {});
+    } catch (e) {}
+    navigate(`/interview/room/${sessionId}?role=candidate&name=${encodeURIComponent(name)}&email=${encodeURIComponent(email)}`);
+  };
+
   // Join waiting queue
   const handleJoinQueue = (e: React.FormEvent) => {
     e.preventDefault();
@@ -213,9 +237,11 @@ export const CandidateLobby: React.FC = () => {
       }
     });
 
+    // 20-Second Countdown for Candidate Entry!
     socket.on('interview:admitted', () => {
       testSpeaker();
-      navigate(`/interview/room/${sessionId}?role=candidate&name=${encodeURIComponent(name)}&email=${encodeURIComponent(email)}`);
+      setIsAdmitted(true);
+      setAdmittedCountdown(20);
     });
 
     return () => {
@@ -224,6 +250,7 @@ export const CandidateLobby: React.FC = () => {
       socket.off('interview:admitted');
     };
   };
+
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-800 flex flex-col justify-between font-sans selection:bg-primary selection:text-white">
@@ -335,8 +362,38 @@ export const CandidateLobby: React.FC = () => {
 
           {/* Right: Registration or Waiting Queue Screen (Crisp White Card) */}
           <div className="bg-white border border-slate-200 rounded-3xl p-7 shadow-xl">
-            {!isInQueue ? (
+            {isAdmitted ? (
+              <div className="text-center space-y-6 py-4 animate-fade-in">
+                <div className="relative inline-flex items-center justify-center">
+                  <div className="w-24 h-24 rounded-full bg-primary/10 border-4 border-primary text-primary flex items-center justify-center font-bold text-3xl shadow-lg">
+                    {admittedCountdown}s
+                  </div>
+                  <div className="absolute -top-1 -right-1 bg-emerald-500 text-white text-[10px] font-black px-2.5 py-0.5 rounded-full uppercase shadow">
+                    Admitted!
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <h3 className="text-2xl font-bold text-slate-900 tracking-tight">
+                    You Have Been Admitted!
+                  </h3>
+                  <p className="text-xs text-slate-600 max-w-sm mx-auto leading-relaxed">
+                    Connecting to the interviewer. Your live interview begins in <strong className="text-primary">{admittedCountdown} seconds</strong>. The screen will automatically maximize into full view.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={enterInterviewRoom}
+                  className="w-full flex items-center justify-center space-x-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-bold py-3.5 px-4 rounded-xl shadow-lg shadow-emerald-600/25 transition-all transform active:scale-95 text-sm"
+                >
+                  <PlayCircle size={18} />
+                  <span>Enter Interview Room Now (Skip Wait)</span>
+                </button>
+              </div>
+            ) : !isInQueue ? (
               <form onSubmit={handleJoinQueue} className="space-y-4">
+
                 <div>
                   <span className="text-xs font-bold text-primary tracking-wider uppercase">Candidate Check-in</span>
                   <h2 className="text-xl font-bold text-slate-900 mt-0.5">Ready for your Interview?</h2>
