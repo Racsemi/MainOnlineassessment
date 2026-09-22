@@ -142,6 +142,50 @@ export const getAssessmentResults = async (req: Request, res: Response) => {
       }
     }
 
+    // Fetch assessment sections and all questions/coding questions to establish the FIXED total marks
+    const assessment = await prisma.assessment.findUnique({
+      where: { id },
+      include: {
+        sections: {
+          include: {
+            questions: { select: { id: true, marks: true, text: true, type: true, options: true, expectedAnswer: true } },
+            codingQuestions: { select: { id: true, title: true, description: true, marks: true, testCases: true, allowedLanguages: true } }
+          }
+        }
+      }
+    });
+
+    const [allMcqs, allCoding] = await Promise.all([
+      prisma.question.findMany({
+        where: { section: { assessmentId: id } },
+        select: { id: true, marks: true, text: true, type: true, options: true, expectedAnswer: true }
+      }),
+      prisma.codingQuestion.findMany({
+        where: { section: { assessmentId: id } },
+        select: { id: true, title: true, description: true, marks: true, testCases: true, allowedLanguages: true }
+      })
+    ]);
+
+    // Consolidate unique questions belonging to this assessment
+    const questionMap = new Map<string, any>();
+    for (const q of allMcqs) questionMap.set(q.id, q);
+    for (const s of (assessment?.sections || [])) {
+      for (const q of (s.questions || [])) questionMap.set(q.id, q);
+    }
+    const allAssessmentQuestions = Array.from(questionMap.values());
+
+    const codingMap = new Map<string, any>();
+    for (const cq of allCoding) codingMap.set(cq.id, cq);
+    for (const s of (assessment?.sections || [])) {
+      for (const cq of (s.codingQuestions || [])) codingMap.set(cq.id, cq);
+    }
+    const allAssessmentCoding = Array.from(codingMap.values());
+
+    // Fixed total marks configured for the assessment
+    const fixedMcqMaxScore = allAssessmentQuestions.reduce((sum, q) => sum + (Number(q.marks) || 0), 0);
+    const fixedCodingMaxScore = allAssessmentCoding.reduce((sum, cq) => sum + (Number(cq.marks) || 10), 0);
+    const fixedAssessmentTotalMarks = fixedMcqMaxScore + fixedCodingMaxScore;
+
     // Fetch all candidates belonging to this assessment to guarantee no candidate or result is missed
     const candidates = await prisma.candidate.findMany({
       where: { assessmentId: id },
@@ -176,61 +220,193 @@ export const getAssessmentResults = async (req: Request, res: Response) => {
       // Pick completed session first, or latest session
       const session = c.sessions.find(s => s.status === 'COMPLETED') || c.sessions[0];
 
-      const codingSubmissions = (session?.codingAnswers || []).map((ca: any) => ({
-        id: ca.id,
-        questionTitle: ca.codingQuestion?.title || 'Coding Question',
-        questionDescription: ca.codingQuestion?.description || '',
-        language: ca.language,
-        status: ca.status,
-        score: ca.score ?? 0,
-        maxScore: ca.codingQuestion?.marks || 10,
-        code: ca.code,
-        testCases: (ca.codingQuestion?.testCases || []).map((tc: any) => ({
-          input: tc.input,
-          expectedOutput: tc.expectedOutput,
-          isHidden: tc.isHidden
-        }))
-      }));
+      // Build complete coding submissions list, ensuring every assessment coding problem is present
+      let codingSubmissions: any[] = [];
+      if (allAssessmentCoding.length > 0) {
+        codingSubmissions = allAssessmentCoding.map(cq => {
+          const ca = (session?.codingAnswers || []).find((ans: any) => ans.codingQuestionId === cq.id || ans.codingQuestion?.id === cq.id);
+          if (ca) {
+            return {
+              id: ca.id,
+              codingQuestionId: cq.id,
+              questionTitle: cq.title || 'Coding Question',
+              questionDescription: cq.description || '',
+              language: ca.language || 'PYTHON',
+              status: ca.status || 'SUBMITTED',
+              score: ca.score ?? 0,
+              maxScore: cq.marks || 10,
+              code: ca.code || '',
+              testCases: (cq.testCases || []).map((tc: any) => ({
+                input: tc.input,
+                expectedOutput: tc.expectedOutput,
+                isHidden: tc.isHidden
+              }))
+            };
+          } else {
+            return {
+              id: `unattended-${cq.id}`,
+              codingQuestionId: cq.id,
+              questionTitle: cq.title || 'Coding Question',
+              questionDescription: cq.description || '',
+              language: 'PYTHON',
+              status: 'NOT_ATTEMPTED',
+              score: 0,
+              maxScore: cq.marks || 10,
+              code: '',
+              testCases: (cq.testCases || []).map((tc: any) => ({
+                input: tc.input,
+                expectedOutput: tc.expectedOutput,
+                isHidden: tc.isHidden
+              }))
+            };
+          }
+        });
+      } else {
+        codingSubmissions = (session?.codingAnswers || []).map((ca: any) => ({
+          id: ca.id,
+          questionTitle: ca.codingQuestion?.title || 'Coding Question',
+          questionDescription: ca.codingQuestion?.description || '',
+          language: ca.language,
+          status: ca.status,
+          score: ca.score ?? 0,
+          maxScore: ca.codingQuestion?.marks || 10,
+          code: ca.code,
+          testCases: (ca.codingQuestion?.testCases || []).map((tc: any) => ({
+            input: tc.input,
+            expectedOutput: tc.expectedOutput,
+            isHidden: tc.isHidden
+          }))
+        }));
+      }
 
-      const standardAnswers = (session?.answers || []).map((ans: any) => {
-        let responseText = ans.textAnswer || '';
-        const selectedOpts = (ans.question?.options || []).filter((o: any) => (ans.selectedOptionIds || []).includes(o.id));
-        if (selectedOpts.length > 0) {
-          responseText = selectedOpts.map((o: any) => o.text).join(', ');
-        }
-        
-        const correctOpts = (ans.question?.options || []).filter((o: any) => o.isCorrect);
-        const correctAnswer = correctOpts.length > 0 
-          ? correctOpts.map((o: any) => o.text).join(', ') 
-          : (ans.question?.expectedAnswer || '');
+      // Map standard MCQ answers
+      const submittedAnswerMap = new Map<string, any>();
+      for (const ans of (session?.answers || [])) {
+        submittedAnswerMap.set(ans.questionId, ans);
+      }
 
-        const isCorrect = (ans.score || 0) > 0;
+      let standardAnswers: any[] = [];
+      if (allAssessmentQuestions.length > 0) {
+        standardAnswers = allAssessmentQuestions.map(q => {
+          const ans = submittedAnswerMap.get(q.id);
+          if (ans) {
+            let responseText = ans.textAnswer || '';
+            const selectedOpts = (q.options || []).filter((o: any) => (ans.selectedOptionIds || []).includes(o.id));
+            if (selectedOpts.length > 0) {
+              responseText = selectedOpts.map((o: any) => o.text).join(', ');
+            }
+            
+            const correctOpts = (q.options || []).filter((o: any) => o.isCorrect);
+            const correctAnswer = correctOpts.length > 0 
+              ? correctOpts.map((o: any) => o.text).join(', ') 
+              : (q.expectedAnswer || '');
 
-        return {
-          id: ans.id,
-          questionId: ans.questionId,
-          questionText: ans.question?.text || 'Question',
-          type: ans.question?.type || 'SINGLE_CHOICE',
-          options: (ans.question?.options || []).map((o: any) => ({
-            id: o.id,
-            text: o.text,
-            isCorrect: o.isCorrect,
-            isSelected: (ans.selectedOptionIds || []).includes(o.id)
-          })),
-          selectedOptionIds: ans.selectedOptionIds || [],
-          response: responseText,
-          correctAnswer,
-          isCorrect,
-          score: ans.score ?? 0,
-          maxScore: ans.question?.marks ?? 0
-        };
-      });
+            const isCorrect = (ans.score || 0) > 0;
 
-      // Calculate category scores
-      const mcqScore = standardAnswers.reduce((sum: number, a: any) => sum + (a.score || 0), 0);
-      const mcqMaxScore = standardAnswers.reduce((sum: number, a: any) => sum + (a.maxScore || 0), 0);
-      const codingScore = codingSubmissions.reduce((sum: number, a: any) => sum + (a.score || 0), 0);
-      const codingMaxScore = codingSubmissions.reduce((sum: number, a: any) => sum + (a.maxScore || 0), 0);
+            return {
+              id: ans.id,
+              questionId: q.id,
+              questionText: q.text || 'Question',
+              type: q.type || 'SINGLE_CHOICE',
+              options: (q.options || []).map((o: any) => ({
+                id: o.id,
+                text: o.text,
+                isCorrect: o.isCorrect,
+                isSelected: (ans.selectedOptionIds || []).includes(o.id)
+              })),
+              selectedOptionIds: ans.selectedOptionIds || [],
+              response: responseText,
+              correctAnswer,
+              isCorrect,
+              score: ans.score ?? 0,
+              maxScore: q.marks ?? 1,
+              isUnanswered: false
+            };
+          } else {
+            const correctOpts = (q.options || []).filter((o: any) => o.isCorrect);
+            const correctAnswer = correctOpts.length > 0 
+              ? correctOpts.map((o: any) => o.text).join(', ') 
+              : (q.expectedAnswer || '');
+
+            return {
+              id: `unanswered-${q.id}`,
+              questionId: q.id,
+              questionText: q.text || 'Question',
+              type: q.type || 'SINGLE_CHOICE',
+              options: (q.options || []).map((o: any) => ({
+                id: o.id,
+                text: o.text,
+                isCorrect: o.isCorrect,
+                isSelected: false
+              })),
+              selectedOptionIds: [],
+              response: 'Not Attempted',
+              correctAnswer,
+              isCorrect: false,
+              score: 0,
+              maxScore: q.marks ?? 1,
+              isUnanswered: true
+            };
+          }
+        });
+      } else {
+        standardAnswers = (session?.answers || []).map((ans: any) => {
+          let responseText = ans.textAnswer || '';
+          const selectedOpts = (ans.question?.options || []).filter((o: any) => (ans.selectedOptionIds || []).includes(o.id));
+          if (selectedOpts.length > 0) {
+            responseText = selectedOpts.map((o: any) => o.text).join(', ');
+          }
+          
+          const correctOpts = (ans.question?.options || []).filter((o: any) => o.isCorrect);
+          const correctAnswer = correctOpts.length > 0 
+            ? correctOpts.map((o: any) => o.text).join(', ') 
+            : (ans.question?.expectedAnswer || '');
+
+          const isCorrect = (ans.score || 0) > 0;
+
+          return {
+            id: ans.id,
+            questionId: ans.questionId,
+            questionText: ans.question?.text || 'Question',
+            type: ans.question?.type || 'SINGLE_CHOICE',
+            options: (ans.question?.options || []).map((o: any) => ({
+              id: o.id,
+              text: o.text,
+              isCorrect: o.isCorrect,
+              isSelected: (ans.selectedOptionIds || []).includes(o.id)
+            })),
+            selectedOptionIds: ans.selectedOptionIds || [],
+            response: responseText,
+            correctAnswer,
+            isCorrect,
+            score: ans.score ?? 0,
+            maxScore: ans.question?.marks ?? 0,
+            isUnanswered: false
+          };
+        });
+      }
+
+      // Calculate candidate scores
+      const mcqScore = standardAnswers.reduce((sum: number, a: any) => sum + (Number(a.score) || 0), 0);
+      const codingScore = codingSubmissions.reduce((sum: number, a: any) => sum + (Number(a.score) || 0), 0);
+      const totalScore = mcqScore + codingScore;
+
+      // Fixed total marks and maximums
+      const attendedMcqMax = standardAnswers.filter(a => !a.isUnanswered).reduce((sum: number, a: any) => sum + (Number(a.maxScore) || 0), 0);
+      const attendedCodingMax = codingSubmissions.filter(c => c.status !== 'NOT_ATTEMPTED').reduce((sum: number, a: any) => sum + (Number(a.maxScore) || 10), 0);
+      
+      const mcqMaxScore = fixedMcqMaxScore > 0 ? fixedMcqMaxScore : attendedMcqMax;
+      const codingMaxScore = fixedCodingMaxScore > 0 ? fixedCodingMaxScore : attendedCodingMax;
+      const maxScore = fixedAssessmentTotalMarks > 0 ? fixedAssessmentTotalMarks : (mcqMaxScore + codingMaxScore) || 100;
+      const percentage = maxScore > 0 ? Math.round((totalScore / maxScore) * 1000) / 10 : 0;
+
+      // Sync updated maxScore and totalScore to database if it was previously saved with attended-only maxScore
+      if (result && (result.maxScore !== maxScore || Math.abs(result.totalScore - totalScore) > 0.05)) {
+        prisma.assessmentResult.update({
+          where: { id: result.id },
+          data: { maxScore, totalScore, percentage }
+        }).catch(() => {});
+      }
 
       // Resolve human-readable custom registration fields
       const customFieldsWithLabels: Record<string, { label: string, value: any }> = {};
@@ -245,10 +421,6 @@ export const getAssessmentResults = async (req: Request, res: Response) => {
       const college = c.college || rawCustom.field_1 || rawCustom.college || '';
       const cgpa = c.cgpa !== null && c.cgpa !== undefined ? String(c.cgpa) : (rawCustom.field_2 || rawCustom.cgpa || '');
       const branch = c.branch || rawCustom.branch || '';
-
-      const totalScore = result ? result.totalScore : (mcqScore + codingScore);
-      const maxScore = result ? result.maxScore : (mcqMaxScore + codingMaxScore);
-      const percentage = result ? result.percentage : (maxScore > 0 ? (totalScore / maxScore) * 100 : 0);
       const status = result?.status || (session?.status === 'COMPLETED' ? 'EVALUATED' : (session?.status || 'INVITED'));
 
       return {
@@ -266,7 +438,7 @@ export const getAssessmentResults = async (req: Request, res: Response) => {
         files: c.files || [],
         score: totalScore,
         maxScore,
-        percentage: Math.round(percentage * 10) / 10,
+        percentage,
         mcqScore,
         mcqMaxScore,
         codingScore,
@@ -441,6 +613,22 @@ export const evaluateAllAssessmentCodingSubmissions = async (req: Request, res: 
     let evaluatedSubmissionsCount = 0;
     const summaryDetails: any[] = [];
 
+    // Calculate fixed assessment total marks
+    const [assessmentMcqs, assessmentCoding] = await Promise.all([
+      prisma.question.findMany({
+        where: { section: { assessmentId } },
+        select: { id: true, marks: true }
+      }),
+      prisma.codingQuestion.findMany({
+        where: { section: { assessmentId } },
+        select: { id: true, marks: true }
+      })
+    ]);
+
+    const fixedMcqMax = assessmentMcqs.reduce((sum, q) => sum + (Number(q.marks) || 0), 0);
+    const fixedCodingMax = assessmentCoding.reduce((sum, cq) => sum + (Number(cq.marks) || 10), 0);
+    const fixedTotalMax = fixedMcqMax + fixedCodingMax;
+
     for (const candidate of candidates) {
       const session = candidate.sessions.find(s => s.status === 'COMPLETED') || candidate.sessions[0];
       if (!session || !session.codingAnswers || session.codingAnswers.length === 0) {
@@ -495,19 +683,18 @@ export const evaluateAllAssessmentCodingSubmissions = async (req: Request, res: 
       }
 
       // Recalculate Candidate's Overall AssessmentResult
-      const mcqScore = session.answers.reduce((sum, a) => sum + (a.score || 0), 0);
+      const mcqScore = session.answers.reduce((sum, a) => sum + (Number(a.score) || 0), 0);
       const totalScore = mcqScore + candidateCodingMarks;
 
       let result = candidate.results[0];
-      let maxScore = result ? result.maxScore : 0;
+      let maxScore = fixedTotalMax > 0 ? fixedTotalMax : (result ? result.maxScore : 0);
       if (maxScore === 0) {
-        // Compute from session questions if maxScore was 0
-        const mcqMax = session.answers.length;
+        const mcqMax = session.answers.reduce((sum, a) => sum + (Number((a as any).question?.marks) || 1), 0);
         const codingMax = session.codingAnswers.reduce((sum, c) => sum + ((c.codingQuestion as any)?.marks || 10), 0);
-        maxScore = mcqMax + codingMax;
+        maxScore = mcqMax + codingMax || 100;
       }
 
-      const percentage = maxScore > 0 ? (totalScore / maxScore) * 100 : 0;
+      const percentage = maxScore > 0 ? Math.round((totalScore / maxScore) * 1000) / 10 : 0;
 
       await prisma.assessmentResult.upsert({
         where: { candidateId_assessmentId: { candidateId: candidate.id, assessmentId } },
@@ -624,10 +811,26 @@ export const evaluateSingleCodingSubmission = async (req: Request, res: Response
       });
 
       if (result) {
-        const percentage = result.maxScore > 0 ? (newTotal / result.maxScore) * 100 : 0;
+        const assessmentId = session.candidate.assessmentId;
+        const [assessmentMcqs, assessmentCoding] = await Promise.all([
+          prisma.question.findMany({
+            where: { section: { assessmentId } },
+            select: { id: true, marks: true }
+          }),
+          prisma.codingQuestion.findMany({
+            where: { section: { assessmentId } },
+            select: { id: true, marks: true }
+          })
+        ]);
+        const fixedMcqMax = assessmentMcqs.reduce((sum, q) => sum + (Number(q.marks) || 0), 0);
+        const fixedCodingMax = assessmentCoding.reduce((sum, cq) => sum + (Number(cq.marks) || 10), 0);
+        const fixedTotal = fixedMcqMax + fixedCodingMax;
+        const currentMax = fixedTotal > 0 ? fixedTotal : (result.maxScore || 100);
+        const percentage = currentMax > 0 ? Math.round((newTotal / currentMax) * 1000) / 10 : 0;
+
         updatedResult = await prisma.assessmentResult.update({
           where: { id: result.id },
-          data: { totalScore: newTotal, percentage }
+          data: { totalScore: newTotal, maxScore: currentMax, percentage }
         });
       }
     }

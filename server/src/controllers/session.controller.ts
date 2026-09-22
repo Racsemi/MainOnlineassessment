@@ -264,15 +264,41 @@ export const submitAssessment = async (req: Request, res: Response) => {
       }
     }
 
-    const percentage = maxScore > 0 ? Math.max(0, (totalScore / maxScore) * 100) : 0;
+    // Calculate fixed assessment total marks (all questions in assessment, whether attended or not)
+    const assessmentId = session.candidate.assessmentId;
+    let fixedMaxScore = 0;
+    try {
+      const [assessmentMcqs, assessmentCoding] = await Promise.all([
+        prisma.question.findMany({
+          where: { section: { assessmentId } },
+          select: { id: true, marks: true }
+        }),
+        prisma.codingQuestion.findMany({
+          where: { section: { assessmentId } },
+          select: { id: true, marks: true }
+        })
+      ]);
+
+      const fixedMcqMax = assessmentMcqs.reduce((sum, q) => sum + (Number(q.marks) || 0), 0);
+      const fixedCodingMax = assessmentCoding.reduce((sum, cq) => sum + (Number(cq.marks) || 10), 0);
+      fixedMaxScore = fixedMcqMax + fixedCodingMax;
+    } catch (maxErr) {
+      console.error('Error fetching fixed assessment max marks:', maxErr);
+    }
+
+    const finalMaxScore = fixedMaxScore > 0 ? fixedMaxScore : (maxScore || 100);
+    const percentage = finalMaxScore > 0 ? Math.max(0, Math.round((totalScore / finalMaxScore) * 1000) / 10) : 0;
 
     await prisma.assessmentResult.upsert({
       where: { candidateId_assessmentId: { candidateId: session.candidateId, assessmentId: session.candidate.assessmentId } },
-      update: { totalScore, maxScore, percentage, status: 'EVALUATED' },
+      update: { totalScore, maxScore: finalMaxScore, percentage, status: 'EVALUATED' },
       create: { 
         candidateId: session.candidateId, 
         assessmentId: session.candidate.assessmentId,
-        totalScore, maxScore, percentage, status: 'EVALUATED'
+        totalScore, 
+        maxScore: finalMaxScore, 
+        percentage, 
+        status: 'EVALUATED'
       }
     });
     

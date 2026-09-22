@@ -648,19 +648,19 @@ const ResultsView: React.FC<ResultsViewProps> = ({ assessmentId: propId }) => {
       </div>
 
       {/* TOP VIEW SWITCHER: Candidate Scores vs Candidate-Wise Integrity Photos */}
-      <div className="flex border border-gray-200 mb-6 bg-white rounded-xl p-1.5 shadow-sm gap-2">
+      <div className="bg-slate-100 border border-slate-300 p-2 rounded-2xl mb-6 shadow-sm flex flex-col sm:flex-row gap-2.5">
         <button
           onClick={() => setActiveViewMode('CANDIDATES')}
-          className={`flex-1 py-3 px-5 rounded-lg text-sm font-bold flex items-center justify-center space-x-2.5 transition-all ${
+          className={`flex-1 py-3 px-5 rounded-xl text-sm font-black flex items-center justify-center space-x-2.5 transition-all ${
             activeViewMode === 'CANDIDATES'
-              ? 'bg-primary text-white shadow-sm'
-              : 'text-gray-600 hover:text-dark hover:bg-gray-50'
+              ? 'bg-primary text-white shadow-md ring-2 ring-primary ring-offset-2'
+              : 'bg-white text-slate-700 hover:text-slate-950 hover:bg-slate-50 border border-slate-300 shadow-sm'
           }`}
         >
-          <Award size={18} />
-          <span>Candidate Results & Scores</span>
-          <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${
-            activeViewMode === 'CANDIDATES' ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-600'
+          <Award size={18} className={activeViewMode === 'CANDIDATES' ? 'text-white' : 'text-primary'} />
+          <span>Candidate Results & Fixed Scores</span>
+          <span className={`text-xs px-2.5 py-0.5 rounded-full font-black ${
+            activeViewMode === 'CANDIDATES' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-800 border border-slate-200'
           }`}>
             {normalizedResults.length}
           </span>
@@ -668,16 +668,16 @@ const ResultsView: React.FC<ResultsViewProps> = ({ assessmentId: propId }) => {
 
         <button
           onClick={() => setActiveViewMode('ALL_INTEGRITY_PHOTOS')}
-          className={`flex-1 py-3 px-5 rounded-lg text-sm font-bold flex items-center justify-center space-x-2.5 transition-all ${
+          className={`flex-1 py-3 px-5 rounded-xl text-sm font-black flex items-center justify-center space-x-2.5 transition-all ${
             activeViewMode === 'ALL_INTEGRITY_PHOTOS'
-              ? 'bg-purple-600 text-white shadow-sm'
-              : 'text-gray-600 hover:text-dark hover:bg-gray-50'
+              ? 'bg-purple-600 text-white shadow-md ring-2 ring-purple-600 ring-offset-2'
+              : 'bg-white text-slate-700 hover:text-slate-950 hover:bg-slate-50 border border-slate-300 shadow-sm'
           }`}
         >
-          <Camera size={18} />
+          <Camera size={18} className={activeViewMode === 'ALL_INTEGRITY_PHOTOS' ? 'text-white' : 'text-purple-600'} />
           <span>Candidate-Wise Integrity Photos</span>
-          <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${
-            activeViewMode === 'ALL_INTEGRITY_PHOTOS' ? 'bg-white/20 text-white' : 'bg-purple-100 text-purple-800'
+          <span className={`text-xs px-2.5 py-0.5 rounded-full font-black ${
+            activeViewMode === 'ALL_INTEGRITY_PHOTOS' ? 'bg-white/20 text-white' : 'bg-purple-100 text-purple-800 border border-purple-200'
           }`}>
             {candidatesWithPhotos.reduce((acc, c) => acc + c.allPhotos.length, 0)} Photos
           </span>
@@ -1161,11 +1161,16 @@ const ResultsView: React.FC<ResultsViewProps> = ({ assessmentId: propId }) => {
                       {selectedCandidate.status || 'EVALUATED'}
                     </span>
                   </h3>
-                  <div className="text-xs text-gray-500 flex flex-wrap items-center gap-x-3 gap-y-1 mt-0.5">
-                    <span>{selectedCandidate.email}</span>
+                  <div className="text-xs text-gray-600 flex flex-wrap items-center gap-x-3 gap-y-1.5 mt-1">
+                    <span className="font-mono text-gray-700">{selectedCandidate.email}</span>
                     {selectedCandidate.phone && <span>• 📞 {selectedCandidate.phone}</span>}
                     {selectedCandidate.college && <span>• 🏛️ {selectedCandidate.college}</span>}
-                    <span>• Score: <strong className="text-dark">{selectedCandidate.score} / {selectedCandidate.maxScore}</strong> ({selectedCandidate.percentage}%)</span>
+                    <span className="bg-blue-50 text-blue-800 px-3 py-0.5 rounded-full font-black border border-blue-200">
+                      Total: {selectedCandidate.score} / {selectedCandidate.maxScore} ({selectedCandidate.percentage}%)
+                    </span>
+                    <span className="text-[11px] text-gray-500 font-medium">
+                      (MCQ: {selectedCandidate.mcqScore ?? 0}/{selectedCandidate.mcqMaxScore ?? 0} pts • Code: {selectedCandidate.codingScore ?? 0}/{selectedCandidate.codingMaxScore ?? 0} pts)
+                    </span>
                   </div>
                 </div>
               </div>
@@ -1173,65 +1178,109 @@ const ResultsView: React.FC<ResultsViewProps> = ({ assessmentId: propId }) => {
               <div className="flex items-center space-x-2.5">
                 <button 
                   onClick={handleExportPdf}
-                  className="px-3.5 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors font-bold text-xs flex items-center space-x-1.5"
+                  className="px-3.5 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl transition-colors font-bold text-xs flex items-center space-x-1.5 shadow-sm"
                 >
                   <Printer size={15} />
                   <span>Print Dossier</span>
                 </button>
                 <button 
                   onClick={() => setSelectedCandidate(null)}
-                  className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-dark transition-colors"
+                  className="p-2 hover:bg-gray-100 rounded-xl text-gray-400 hover:text-dark transition-colors"
                 >
-                  <X size={20} />
+                  <X size={22} />
                 </button>
               </div>
             </div>
 
-            {/* Modal Navigation Tabs */}
-            <div className="bg-gray-50 px-6 border-b border-gray-200 flex space-x-1 sm:space-x-3 overflow-x-auto text-xs font-bold">
+            {/* Modal Navigation Tabs - High-Contrast Visible Segmented Control */}
+            <div className="bg-slate-100 border-b border-slate-300 px-6 py-3 flex items-center gap-2.5 overflow-x-auto shadow-inner">
+              <div className="text-[11px] font-black uppercase tracking-wider text-slate-500 shrink-0 mr-1 flex items-center space-x-1">
+                <span>View Section:</span>
+              </div>
+
               {/* 1. CODING ANSWERS & RUN EVALUATION TAB */}
               <button 
                 onClick={() => setActiveModalTab('CODING')}
-                className={`py-3 px-3.5 border-b-2 flex items-center space-x-2 transition-colors ${activeModalTab === 'CODING' ? 'border-purple-600 text-purple-700 bg-white' : 'border-transparent text-gray-500 hover:text-dark'}`}
+                className={`px-4 py-2.5 rounded-xl text-xs font-black flex items-center space-x-2 transition-all shrink-0 shadow-sm ${
+                  activeModalTab === 'CODING' 
+                    ? 'bg-purple-600 text-white shadow-purple-500/30 ring-2 ring-purple-600 ring-offset-1 scale-[1.02]' 
+                    : 'bg-white text-slate-700 hover:text-purple-700 hover:bg-purple-50 border border-slate-300'
+                }`}
               >
-                <Code size={15} />
-                <span>Coding Answers & Run ({selectedCandidate.codingSubmissions?.length || 0})</span>
+                <Code size={16} className={activeModalTab === 'CODING' ? 'text-white' : 'text-purple-600'} />
+                <span>Coding Answers & Run</span>
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+                  activeModalTab === 'CODING' ? 'bg-white/25 text-white' : 'bg-purple-100 text-purple-800'
+                }`}>
+                  {selectedCandidate.codingSubmissions?.length || 0}
+                </span>
               </button>
 
               {/* 2. MCQ & STANDARD QUESTIONS TAB */}
               <button 
                 onClick={() => setActiveModalTab('ANSWERS')}
-                className={`py-3 px-3.5 border-b-2 flex items-center space-x-2 transition-colors ${activeModalTab === 'ANSWERS' ? 'border-primary text-primary bg-white' : 'border-transparent text-gray-500 hover:text-dark'}`}
+                className={`px-4 py-2.5 rounded-xl text-xs font-black flex items-center space-x-2 transition-all shrink-0 shadow-sm ${
+                  activeModalTab === 'ANSWERS' 
+                    ? 'bg-blue-600 text-white shadow-blue-500/30 ring-2 ring-blue-600 ring-offset-1 scale-[1.02]' 
+                    : 'bg-white text-slate-700 hover:text-blue-700 hover:bg-blue-50 border border-slate-300'
+                }`}
               >
-                <FileText size={15} />
-                <span>MCQ & Answers ({selectedCandidate.standardAnswers?.length || 0})</span>
+                <FileText size={16} className={activeModalTab === 'ANSWERS' ? 'text-white' : 'text-blue-600'} />
+                <span>MCQ & Answers</span>
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+                  activeModalTab === 'ANSWERS' ? 'bg-white/25 text-white' : 'bg-blue-100 text-blue-800'
+                }`}>
+                  {selectedCandidate.standardAnswers?.length || 0}
+                </span>
               </button>
 
               {/* 3. DEDICATED SEPARATE INTEGRITY PHOTOS TAB */}
               <button 
                 onClick={() => setActiveModalTab('PHOTOS')}
-                className={`py-3 px-3.5 border-b-2 flex items-center space-x-2 transition-colors ${activeModalTab === 'PHOTOS' ? 'border-red-600 text-red-700 bg-white' : 'border-transparent text-gray-500 hover:text-dark'}`}
+                className={`px-4 py-2.5 rounded-xl text-xs font-black flex items-center space-x-2 transition-all shrink-0 shadow-sm ${
+                  activeModalTab === 'PHOTOS' 
+                    ? 'bg-rose-600 text-white shadow-rose-500/30 ring-2 ring-rose-600 ring-offset-1 scale-[1.02]' 
+                    : 'bg-white text-slate-700 hover:text-rose-700 hover:bg-rose-50 border border-slate-300'
+                }`}
               >
-                <Camera size={15} />
-                <span>📷 Integrity Photos ({candidatePhotos.length})</span>
+                <Camera size={16} className={activeModalTab === 'PHOTOS' ? 'text-white' : 'text-rose-600'} />
+                <span>📷 Integrity Photos</span>
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+                  activeModalTab === 'PHOTOS' ? 'bg-white/25 text-white' : 'bg-rose-100 text-rose-800'
+                }`}>
+                  {candidatePhotos.length}
+                </span>
               </button>
 
               {/* 4. PROCTORING EVENT LOGS */}
               <button 
                 onClick={() => setActiveModalTab('LOGS')}
-                className={`py-3 px-3.5 border-b-2 flex items-center space-x-2 transition-colors ${activeModalTab === 'LOGS' ? 'border-primary text-primary bg-white' : 'border-transparent text-gray-500 hover:text-dark'}`}
+                className={`px-4 py-2.5 rounded-xl text-xs font-black flex items-center space-x-2 transition-all shrink-0 shadow-sm ${
+                  activeModalTab === 'LOGS' 
+                    ? 'bg-amber-600 text-white shadow-amber-500/30 ring-2 ring-amber-600 ring-offset-1 scale-[1.02]' 
+                    : 'bg-white text-slate-700 hover:text-amber-700 hover:bg-amber-50 border border-slate-300'
+                }`}
               >
-                <ShieldAlert size={15} />
-                <span>Event Logs ({selectedCandidate.integrityEventsCount || 0})</span>
+                <ShieldAlert size={16} className={activeModalTab === 'LOGS' ? 'text-white' : 'text-amber-600'} />
+                <span>Event Logs</span>
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+                  activeModalTab === 'LOGS' ? 'bg-white/25 text-white' : 'bg-amber-100 text-amber-800'
+                }`}>
+                  {selectedCandidate.integrityEventsCount || 0}
+                </span>
               </button>
 
               {/* 5. CANDIDATE PROFILE */}
               <button 
                 onClick={() => setActiveModalTab('PROFILE')}
-                className={`py-3 px-3.5 border-b-2 flex items-center space-x-2 transition-colors ${activeModalTab === 'PROFILE' ? 'border-primary text-primary bg-white' : 'border-transparent text-gray-500 hover:text-dark'}`}
+                className={`px-4 py-2.5 rounded-xl text-xs font-black flex items-center space-x-2 transition-all shrink-0 shadow-sm ${
+                  activeModalTab === 'PROFILE' 
+                    ? 'bg-slate-800 text-white shadow-slate-700/30 ring-2 ring-slate-800 ring-offset-1 scale-[1.02]' 
+                    : 'bg-white text-slate-700 hover:text-slate-900 hover:bg-slate-50 border border-slate-300'
+                }`}
               >
-                <User size={15} />
-                <span>Candidate Profile & Files</span>
+                <User size={16} className={activeModalTab === 'PROFILE' ? 'text-white' : 'text-slate-600'} />
+                <span>Profile & Files</span>
               </button>
             </div>
             
@@ -1287,7 +1336,11 @@ const ResultsView: React.FC<ResultsViewProps> = ({ assessmentId: propId }) => {
                               </div>
                               <div className="text-xs text-gray-500 mt-1.5 flex flex-wrap items-center gap-3">
                                 <span>Language: <span className="font-mono font-bold text-purple-700 bg-purple-50 px-2 py-0.5 rounded border border-purple-200 uppercase">{cs.language}</span></span>
-                                <span>Status: <strong className="text-emerald-700 font-bold">{cs.status}</strong></span>
+                                <span>Status: {cs.status === 'NOT_ATTEMPTED' ? (
+                                  <span className="text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 font-bold">NOT ATTEMPTED</span>
+                                ) : (
+                                  <strong className="text-emerald-700 font-bold">{cs.status}</strong>
+                                )}</span>
                                 {runInfo?.totalTimeMs !== undefined && (
                                   <span className="text-gray-500 font-mono">⚡ Execution: {runInfo.totalTimeMs}ms</span>
                                 )}
@@ -1301,10 +1354,10 @@ const ResultsView: React.FC<ResultsViewProps> = ({ assessmentId: propId }) => {
                                 onClick={() => handleEvaluateSingleCoding(cs.id)}
                                 disabled={evaluatingSubmissionId === cs.id || !cs.code}
                                 className="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-md flex items-center space-x-2 disabled:opacity-50 hover:shadow-lg"
-                                title="Run code on remote compiler and evaluate all test cases"
+                                title={cs.code ? "Run code on remote compiler and evaluate all test cases" : "No code submitted by candidate"}
                               >
                                 <Play size={15} className={evaluatingSubmissionId === cs.id ? "animate-spin" : ""} />
-                                <span>{evaluatingSubmissionId === cs.id ? "Running Tests..." : "▶ Run & Evaluate Code"}</span>
+                                <span>{evaluatingSubmissionId === cs.id ? "Running Tests..." : !cs.code ? "No Code to Run" : "▶ Run & Evaluate Code"}</span>
                               </button>
 
                               {/* Marks Input */}
@@ -1571,7 +1624,11 @@ const ResultsView: React.FC<ResultsViewProps> = ({ assessmentId: propId }) => {
                               <div className="flex items-center space-x-2 mb-1">
                                 <span className="bg-gray-200 text-gray-700 text-xs font-bold px-2 py-0.5 rounded">Q{idx + 1}</span>
                                 <span className="text-[11px] font-bold text-gray-400 uppercase">{ans.type?.replace('_', ' ')}</span>
-                                {isCorrect ? (
+                                {ans.isUnanswered ? (
+                                  <span className="inline-flex items-center text-xs font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                                    <AlertTriangle size={13} className="mr-1" /> Not Attempted (0 pts)
+                                  </span>
+                                ) : isCorrect ? (
                                   <span className="inline-flex items-center text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded">
                                     <CheckCircle size={13} className="mr-1" /> Correct (+{ans.score} pts)
                                   </span>
