@@ -11,6 +11,9 @@ import PlatformSettings from './features/admin/PlatformSettings';
 import CandidatePortal from './features/candidate/CandidatePortal';
 import PublicRegistration from './features/candidate/PublicRegistration';
 import Login from './features/auth/Login';
+import AdminInterviewList from './features/interview/AdminInterviewList';
+import CandidateLobby from './features/interview/CandidateLobby';
+import LiveInterviewRoom from './features/interview/LiveInterviewRoom';
 
 function App() {
   return (
@@ -31,9 +34,15 @@ function App() {
           <Route path="questions/:id" element={<QuestionEditor />} />
 
           <Route path="candidates" element={<CandidatesList />} />
+          <Route path="interviews" element={<AdminInterviewList />} />
           <Route path="settings" element={<PlatformSettings />} />
         </Route>
         
+        {/* Full-screen Live Interview Routes */}
+        <Route path="/admin/interview/:id" element={<LiveInterviewRoom />} />
+        <Route path="/interview/lobby/:id" element={<CandidateLobby />} />
+        <Route path="/interview/room/:id" element={<LiveInterviewRoom />} />
+
         {/* Candidate Routes */}
         <Route path="/register/:id" element={<PublicRegistration />} />
         <Route path="/test/:token" element={<CandidatePortal />} />
@@ -43,5 +52,6 @@ function App() {
     </Router>
   );
 }
+
 
 export default App;

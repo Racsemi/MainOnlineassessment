@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Outlet, Link, useNavigate, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Users, FileQuestion, LogOut, Settings, Zap, Loader2 } from 'lucide-react';
+import { LayoutDashboard, Users, FileQuestion, LogOut, Settings, Zap, Loader2, Video } from 'lucide-react';
 import api from '../../lib/axios';
 
 const AdminLayout = () => {
@@ -37,8 +37,10 @@ const AdminLayout = () => {
     { name: 'Assessments', path: '/admin/assessments', icon: <LayoutDashboard size={18} /> },
     { name: 'Question Bank', path: '/admin/questions', icon: <FileQuestion size={18} /> },
     { name: 'Candidates', path: '/admin/candidates', icon: <Users size={18} /> },
+    { name: 'Live Interviews', path: '/admin/interviews', icon: <Video size={18} /> },
     { name: 'Settings', path: '/admin/settings', icon: <Settings size={18} /> },
   ];
+
 
   if (loading) {
     return (
