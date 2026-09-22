@@ -5,8 +5,7 @@ import {
   AlertTriangle, Check, FileText, Code, CheckCircle, XCircle, Award, 
   User, Clock, Phone, GraduationCap, Building, ExternalLink, RefreshCw,
   ChevronDown, ChevronUp, Copy, Play, Zap, Camera, Image, Maximize2, 
-  Terminal, ZoomIn, ChevronLeft, ChevronRight, Sliders, CheckSquare, Sparkles,
-  PlayCircle
+  Terminal, ZoomIn, ChevronLeft, ChevronRight, Sliders, CheckSquare, Sparkles
 } from 'lucide-react';
 import api from '../../lib/axios';
 
@@ -60,8 +59,8 @@ const ResultsView: React.FC<ResultsViewProps> = ({ assessmentId: propId }) => {
   // Top level view mode: 'CANDIDATES' table vs 'ALL_INTEGRITY_PHOTOS' gallery
   const [activeViewMode, setActiveViewMode] = useState<'CANDIDATES' | 'ALL_INTEGRITY_PHOTOS'>('CANDIDATES');
 
-  // Candidate Modal Tab: 'ANSWERS' | 'CODING' | 'PHOTOS' | 'LOGS' | 'PROFILE'
-  const [activeModalTab, setActiveModalTab] = useState<'ANSWERS' | 'CODING' | 'PHOTOS' | 'LOGS' | 'PROFILE'>('ANSWERS');
+  // Candidate Modal Tab: 'CODING' | 'ANSWERS' | 'PHOTOS' | 'LOGS' | 'PROFILE'
+  const [activeModalTab, setActiveModalTab] = useState<'CODING' | 'ANSWERS' | 'PHOTOS' | 'LOGS' | 'PROFILE'>('CODING');
 
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState('ALL');
@@ -80,9 +79,8 @@ const ResultsView: React.FC<ResultsViewProps> = ({ assessmentId: propId }) => {
   const [customExecutionResults, setCustomExecutionResults] = useState<Record<string, any>>({});
   const [isRunningCustomInput, setIsRunningCustomInput] = useState<boolean>(false);
 
-  // Integrity Photos Gallery state
-  const [photoFilterType, setPhotoFilterType] = useState<string>('ALL');
-  const [photoCandidateFilter, setPhotoCandidateFilter] = useState<string>('ALL');
+  // Candidate-Wise Integrity Photos Gallery filters
+  const [candidatePhotoFilter, setCandidatePhotoFilter] = useState<'ALL' | 'FLAGGED_ONLY' | 'CLEAN_ONLY'>('ALL');
   const [photoSearchQuery, setPhotoSearchQuery] = useState<string>('');
 
   // Lightbox Modal state
@@ -201,40 +199,32 @@ const ResultsView: React.FC<ResultsViewProps> = ({ assessmentId: propId }) => {
     });
   }, [rawResults]);
 
-  // Master Collection of all integrity photos across all candidates
-  const allIntegrityPhotos = useMemo(() => {
-    const photos: any[] = [];
-    normalizedResults.forEach((cand: any) => {
-      if (cand.photo) {
+  // Master Collection of candidate-wise integrity photos
+  const candidatesWithPhotos = useMemo(() => {
+    return normalizedResults.map((c: any) => {
+      const photos: any[] = [];
+      if (c.photo) {
         photos.push({
-          id: `reg-${cand.candidateId}`,
-          candidateId: cand.candidateId,
-          candidateName: cand.name,
-          candidateEmail: cand.email,
-          candidateCollege: cand.college,
-          candidateScore: cand.score,
-          candidateMaxScore: cand.maxScore,
-          candidateStatus: cand.status,
+          id: `reg-${c.candidateId}`,
+          candidateId: c.candidateId,
+          candidateName: c.name,
+          candidateEmail: c.email,
           type: 'REGISTRATION',
           eventType: 'ID_VERIFICATION',
           title: 'Identity Verification Snapshot',
-          description: 'Verified webcam photo captured during registration / exam entry.',
-          url: cand.photo,
-          timestamp: cand.startedAt || cand.submittedAt || null
+          description: 'Webcam photo captured during candidate registration / exam entry.',
+          url: c.photo,
+          timestamp: c.startedAt || c.submittedAt || null
         });
       }
-      if (Array.isArray(cand.integrityEvents)) {
-        cand.integrityEvents.forEach((ev: any, idx: number) => {
+      if (Array.isArray(c.integrityEvents)) {
+        c.integrityEvents.forEach((ev: any, idx: number) => {
           if (ev.screenshot) {
             photos.push({
-              id: ev.id || `ev-${cand.candidateId}-${idx}`,
-              candidateId: cand.candidateId,
-              candidateName: cand.name,
-              candidateEmail: cand.email,
-              candidateCollege: cand.college,
-              candidateScore: cand.score,
-              candidateMaxScore: cand.maxScore,
-              candidateStatus: cand.status,
+              id: ev.id || `ev-${c.candidateId}-${idx}`,
+              candidateId: c.candidateId,
+              candidateName: c.name,
+              candidateEmail: c.email,
               type: 'PROCTORING_VIOLATION',
               eventType: ev.eventType,
               title: ev.eventType?.replace(/_/g, ' ') || 'Proctoring Flag',
@@ -245,8 +235,16 @@ const ResultsView: React.FC<ResultsViewProps> = ({ assessmentId: propId }) => {
           }
         });
       }
+
+      const violationPhotos = photos.filter(p => p.type === 'PROCTORING_VIOLATION');
+
+      return {
+        ...c,
+        allPhotos: photos,
+        violationPhotos,
+        hasViolations: violationPhotos.length > 0
+      };
     });
-    return photos;
   }, [normalizedResults]);
 
   // Candidate photos for the currently opened modal
@@ -261,7 +259,7 @@ const ResultsView: React.FC<ResultsViewProps> = ({ assessmentId: propId }) => {
         type: 'REGISTRATION',
         eventType: 'ID_VERIFICATION',
         title: 'Identity Verification Snapshot',
-        description: 'Verified webcam photo captured during registration / exam entry.',
+        description: 'Verified webcam photo captured during test registration.',
         url: selectedCandidate.photo,
         timestamp: selectedCandidate.startedAt || null
       });
@@ -506,25 +504,23 @@ const ResultsView: React.FC<ResultsViewProps> = ({ assessmentId: propId }) => {
     return matchesSearch && matchesStatus;
   });
 
-  // Filtered Master Photos List for the "ALL_INTEGRITY_PHOTOS" tab
-  const filteredAllPhotos = useMemo(() => {
-    return allIntegrityPhotos.filter(p => {
+  // Filtered Candidate-Wise Photos
+  const filteredCandidatesWithPhotos = useMemo(() => {
+    return candidatesWithPhotos.filter(c => {
       const q = photoSearchQuery.toLowerCase();
       const matchesSearch = !q || 
-        (p.candidateName && p.candidateName.toLowerCase().includes(q)) ||
-        (p.candidateEmail && p.candidateEmail.toLowerCase().includes(q)) ||
-        (p.candidateCollege && p.candidateCollege.toLowerCase().includes(q));
+        (c.name && c.name.toLowerCase().includes(q)) ||
+        (c.email && c.email.toLowerCase().includes(q)) ||
+        (c.college && c.college.toLowerCase().includes(q));
 
-      const matchesType = photoFilterType === 'ALL' ||
-        (photoFilterType === 'REGISTRATION' && p.type === 'REGISTRATION') ||
-        (photoFilterType === 'PROCTORING_VIOLATION' && p.type === 'PROCTORING_VIOLATION') ||
-        (p.eventType === photoFilterType);
+      const matchesFilter = 
+        candidatePhotoFilter === 'ALL' ||
+        (candidatePhotoFilter === 'FLAGGED_ONLY' && c.hasViolations) ||
+        (candidatePhotoFilter === 'CLEAN_ONLY' && !c.hasViolations);
 
-      const matchesCandidate = photoCandidateFilter === 'ALL' || p.candidateId === photoCandidateFilter;
-
-      return matchesSearch && matchesType && matchesCandidate;
+      return matchesSearch && matchesFilter;
     });
-  }, [allIntegrityPhotos, photoSearchQuery, photoFilterType, photoCandidateFilter]);
+  }, [candidatesWithPhotos, photoSearchQuery, candidatePhotoFilter]);
 
   // KPI Calculations
   const totalCandidates = normalizedResults.length;
@@ -651,7 +647,7 @@ const ResultsView: React.FC<ResultsViewProps> = ({ assessmentId: propId }) => {
         </div>
       </div>
 
-      {/* TOP VIEW SWITCHER: Results vs Master Integrity Photos Tab */}
+      {/* TOP VIEW SWITCHER: Candidate Scores vs Candidate-Wise Integrity Photos */}
       <div className="flex border border-gray-200 mb-6 bg-white rounded-xl p-1.5 shadow-sm gap-2">
         <button
           onClick={() => setActiveViewMode('CANDIDATES')}
@@ -679,11 +675,11 @@ const ResultsView: React.FC<ResultsViewProps> = ({ assessmentId: propId }) => {
           }`}
         >
           <Camera size={18} />
-          <span>All Integrity & Proctoring Photos</span>
+          <span>Candidate-Wise Integrity Photos</span>
           <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${
             activeViewMode === 'ALL_INTEGRITY_PHOTOS' ? 'bg-white/20 text-white' : 'bg-purple-100 text-purple-800'
           }`}>
-            {allIntegrityPhotos.length}
+            {candidatesWithPhotos.reduce((acc, c) => acc + c.allPhotos.length, 0)} Photos
           </span>
         </button>
       </div>
@@ -728,7 +724,7 @@ const ResultsView: React.FC<ResultsViewProps> = ({ assessmentId: propId }) => {
                   <th className="px-5 py-3.5 font-bold">College & CGPA</th>
                   <th className="px-5 py-3.5 font-bold">Score Breakdown</th>
                   <th className="px-5 py-3.5 font-bold">Status</th>
-                  <th className="px-5 py-3.5 font-bold">Integrity</th>
+                  <th className="px-5 py-3.5 font-bold">Integrity Photos</th>
                   <th className="px-5 py-3.5 font-bold">Resume</th>
                   <th className="px-5 py-3.5 font-bold text-right">Actions</th>
                 </tr>
@@ -829,22 +825,26 @@ const ResultsView: React.FC<ResultsViewProps> = ({ assessmentId: propId }) => {
                           </select>
                         </td>
 
-                        {/* Integrity Flags */}
+                        {/* Candidate Integrity Photos Column */}
                         <td className="px-5 py-4">
                           {r.integrityEventsCount > 0 ? (
                             <button
                               onClick={() => { setSelectedCandidate(r); setActiveModalTab('PHOTOS'); }}
-                              className="inline-flex items-center space-x-1 text-xs font-bold text-red-600 bg-red-50 px-2.5 py-1 rounded-full border border-red-200 hover:bg-red-100 transition-colors"
-                              title="Click to view all photo evidence"
+                              className="inline-flex items-center space-x-1.5 text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-xl border border-red-200 transition-all shadow-sm"
+                              title="Click to view candidate's integrity flag photos"
                             >
-                              <ShieldAlert size={14} />
-                              <span>{r.integrityEventsCount} flags</span>
+                              <Camera size={13} className="text-red-500" />
+                              <span>{r.integrityEventsCount} flag photos</span>
                             </button>
                           ) : (
-                            <span className="inline-flex items-center space-x-1 text-xs font-bold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
+                            <button
+                              onClick={() => { setSelectedCandidate(r); setActiveModalTab('PHOTOS'); }}
+                              className="inline-flex items-center space-x-1.5 text-xs font-bold text-emerald-600 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-xl border border-emerald-200 transition-all"
+                              title="Click to view verified ID photo"
+                            >
                               <Check size={13} />
-                              <span>Clean</span>
-                            </span>
+                              <span>Clean (View ID)</span>
+                            </button>
                           )}
                         </td>
 
@@ -872,19 +872,15 @@ const ResultsView: React.FC<ResultsViewProps> = ({ assessmentId: propId }) => {
                           )}
                         </td>
 
-                        {/* Action Buttons */}
+                        {/* Action: VIEW DOSSIER (Opens directly with coding answers & run button) */}
                         <td className="px-5 py-4 text-right">
                           <button
-                            onClick={() => { setSelectedCandidate(r); setActiveModalTab('CODING'); }}
-                            className="bg-purple-50 hover:bg-purple-100 text-purple-700 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors inline-flex items-center space-x-1 mr-2"
-                            title="Open Code Evaluator"
-                          >
-                            <Code size={14} />
-                            <span>Code</span>
-                          </button>
-                          <button
-                            onClick={() => { setSelectedCandidate(r); setActiveModalTab('ANSWERS'); }}
-                            className="bg-primary hover:bg-blue-700 text-white px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm inline-flex items-center space-x-1"
+                            onClick={() => { 
+                              setSelectedCandidate(r); 
+                              setActiveModalTab(r.codingSubmissions?.length > 0 ? 'CODING' : 'ANSWERS'); 
+                            }}
+                            className="bg-primary hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-sm inline-flex items-center space-x-1.5 hover:shadow"
+                            title="Open candidate dossier with coding solutions and evaluation"
                           >
                             <Eye size={14} />
                             <span>View Dossier</span>
@@ -900,28 +896,28 @@ const ResultsView: React.FC<ResultsViewProps> = ({ assessmentId: propId }) => {
         </div>
       )}
 
-      {/* VIEW 2: MASTER INTEGRITY PHOTOS GALLERY TAB */}
+      {/* VIEW 2: CANDIDATE-WISE INTEGRITY PHOTOS TAB */}
       {activeViewMode === 'ALL_INTEGRITY_PHOTOS' && (
         <div className="space-y-6">
-          {/* Gallery Filter & Search Header */}
-          <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm space-y-4">
+          {/* Header & Filter Controls */}
+          <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-sm space-y-4">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
               <div>
                 <h3 className="font-bold text-dark text-lg flex items-center space-x-2">
                   <Camera className="text-purple-600" size={20} />
-                  <span>Proctoring & Integrity Photo Evidence Stream</span>
+                  <span>Candidate-Wise Integrity & Proctoring Photos</span>
                 </h3>
                 <p className="text-xs text-gray-500 mt-0.5">
-                  Displaying webcam snapshots captured across all candidate sessions ({filteredAllPhotos.length} photos)
+                  Review webcam verification snapshots and violation photos grouped candidate-by-candidate ({filteredCandidatesWithPhotos.length} candidates)
                 </p>
               </div>
 
-              {/* Search candidate */}
+              {/* Candidate Search */}
               <div className="relative w-full md:w-80">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
                 <input 
                   type="text"
-                  placeholder="Filter photos by candidate..."
+                  placeholder="Search candidate name, email, college..."
                   value={photoSearchQuery}
                   onChange={(e) => setPhotoSearchQuery(e.target.value)}
                   className="w-full pl-9 pr-4 py-2 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 bg-white"
@@ -929,167 +925,211 @@ const ResultsView: React.FC<ResultsViewProps> = ({ assessmentId: propId }) => {
               </div>
             </div>
 
-            {/* Filter Pills */}
+            {/* Filter Chips */}
             <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-gray-100 text-xs font-bold">
               <span className="text-gray-400 uppercase tracking-wider text-[11px] mr-1 flex items-center">
-                <Filter size={13} className="mr-1" /> Filter By:
+                <Filter size={13} className="mr-1" /> Filter Candidates:
               </span>
               
               <button 
-                onClick={() => setPhotoFilterType('ALL')}
-                className={`px-3 py-1.5 rounded-lg border transition-all ${
-                  photoFilterType === 'ALL' 
+                onClick={() => setCandidatePhotoFilter('ALL')}
+                className={`px-3.5 py-1.5 rounded-lg border transition-all ${
+                  candidatePhotoFilter === 'ALL' 
                     ? 'bg-purple-600 text-white border-purple-600 shadow-sm' 
                     : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
                 }`}
               >
-                All Photos ({allIntegrityPhotos.length})
+                All Candidates ({candidatesWithPhotos.length})
               </button>
 
               <button 
-                onClick={() => setPhotoFilterType('REGISTRATION')}
-                className={`px-3 py-1.5 rounded-lg border transition-all ${
-                  photoFilterType === 'REGISTRATION' 
-                    ? 'bg-blue-600 text-white border-blue-600 shadow-sm' 
-                    : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
-                }`}
-              >
-                Registration Photos ({allIntegrityPhotos.filter(p => p.type === 'REGISTRATION').length})
-              </button>
-
-              <button 
-                onClick={() => setPhotoFilterType('PROCTORING_VIOLATION')}
-                className={`px-3 py-1.5 rounded-lg border transition-all ${
-                  photoFilterType === 'PROCTORING_VIOLATION' 
+                onClick={() => setCandidatePhotoFilter('FLAGGED_ONLY')}
+                className={`px-3.5 py-1.5 rounded-lg border transition-all ${
+                  candidatePhotoFilter === 'FLAGGED_ONLY' 
                     ? 'bg-red-600 text-white border-red-600 shadow-sm' 
                     : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
                 }`}
               >
-                Violation Screenshots ({allIntegrityPhotos.filter(p => p.type === 'PROCTORING_VIOLATION').length})
+                Candidates with Violation Photos ({candidatesWithPhotos.filter(c => c.hasViolations).length})
               </button>
 
               <button 
-                onClick={() => setPhotoFilterType('FULLSCREEN_EXIT')}
-                className={`px-3 py-1.5 rounded-lg border transition-all ${
-                  photoFilterType === 'FULLSCREEN_EXIT' 
-                    ? 'bg-amber-600 text-white border-amber-600 shadow-sm' 
+                onClick={() => setCandidatePhotoFilter('CLEAN_ONLY')}
+                className={`px-3.5 py-1.5 rounded-lg border transition-all ${
+                  candidatePhotoFilter === 'CLEAN_ONLY' 
+                    ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm' 
                     : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
                 }`}
               >
-                Fullscreen Exit ({allIntegrityPhotos.filter(p => p.eventType === 'FULLSCREEN_EXIT').length})
+                Clean Records Only ({candidatesWithPhotos.filter(c => !c.hasViolations).length})
               </button>
-
-              <button 
-                onClick={() => setPhotoFilterType('TAB_SWITCH')}
-                className={`px-3 py-1.5 rounded-lg border transition-all ${
-                  photoFilterType === 'TAB_SWITCH' 
-                    ? 'bg-red-600 text-white border-red-600 shadow-sm' 
-                    : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
-                }`}
-              >
-                Tab Switch ({allIntegrityPhotos.filter(p => p.eventType === 'TAB_SWITCH').length})
-              </button>
-
-              {/* Filter by specific candidate */}
-              <select
-                value={photoCandidateFilter}
-                onChange={(e) => setPhotoCandidateFilter(e.target.value)}
-                className="ml-auto px-3 py-1.5 border border-gray-300 rounded-lg text-xs font-medium text-gray-700 bg-white"
-              >
-                <option value="ALL">All Candidates ({normalizedResults.length})</option>
-                {normalizedResults.map((c: any) => (
-                  <option key={c.candidateId} value={c.candidateId}>{c.name}</option>
-                ))}
-              </select>
             </div>
           </div>
 
-          {/* Photos Grid */}
-          {filteredAllPhotos.length === 0 ? (
+          {/* Candidate-Wise Photo Cards Stream */}
+          {filteredCandidatesWithPhotos.length === 0 ? (
             <div className="text-center py-20 bg-white rounded-2xl border border-gray-200 shadow-sm">
               <Camera size={48} className="mx-auto text-gray-300 mb-3" />
-              <h3 className="text-base font-bold text-gray-700 mb-1">No Photos Found</h3>
-              <p className="text-xs text-gray-400">No photos match the selected filter criteria.</p>
+              <h3 className="text-base font-bold text-gray-700 mb-1">No Candidates Found</h3>
+              <p className="text-xs text-gray-400">No candidates match the selected filter criteria.</p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-              {filteredAllPhotos.map((photo: any, pIdx: number) => {
-                return (
-                  <div 
-                    key={photo.id || pIdx} 
-                    className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm hover:shadow-md transition-all flex flex-col group"
-                  >
-                    {/* Image Area with Zoom Overlay */}
-                    <div 
-                      className="relative h-44 bg-gray-900 cursor-pointer overflow-hidden flex items-center justify-center"
-                      onClick={() => openLightbox(filteredAllPhotos, pIdx)}
-                    >
-                      <img 
-                        src={photo.url} 
-                        alt={photo.title}
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                        loading="lazy"
-                      />
-                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                        <div className="bg-white/90 text-dark px-3 py-1.5 rounded-lg text-xs font-bold flex items-center space-x-1.5 shadow-lg">
-                          <ZoomIn size={14} />
-                          <span>View Fullscreen</span>
+            <div className="space-y-6">
+              {filteredCandidatesWithPhotos.map((candidate: any) => (
+                <div 
+                  key={candidate.candidateId}
+                  className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm hover:shadow-md transition-shadow"
+                >
+                  {/* Candidate Summary Header */}
+                  <div className="p-4 sm:p-5 bg-gray-50 border-b border-gray-200 flex flex-wrap justify-between items-center gap-4">
+                    <div className="flex items-center space-x-3.5">
+                      {candidate.photo ? (
+                        <img 
+                          src={candidate.photo} 
+                          alt={candidate.name} 
+                          className="w-12 h-12 rounded-full object-cover border-2 border-white shadow-sm cursor-pointer hover:scale-105 transition-transform" 
+                          onClick={() => openLightbox(candidate.allPhotos, 0)}
+                          title="Click to enlarge ID photo"
+                        />
+                      ) : (
+                        <div className="w-12 h-12 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-600 text-white flex items-center justify-center font-bold text-lg shadow-sm">
+                          {candidate.name?.charAt(0)?.toUpperCase() || 'C'}
                         </div>
-                      </div>
-
-                      {/* Event Badge */}
-                      <span className={`absolute top-2.5 left-2.5 text-[10px] font-bold px-2 py-0.5 rounded-md border shadow-sm ${getViolationBadgeColor(photo.eventType)}`}>
-                        {photo.title}
-                      </span>
-                    </div>
-
-                    {/* Card Body */}
-                    <div className="p-3.5 flex-1 flex flex-col justify-between">
+                      )}
                       <div>
-                        <div className="flex items-center justify-between">
-                          <span className="font-bold text-dark text-sm truncate">{photo.candidateName}</span>
-                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-50 text-primary">
-                            {photo.candidateScore} pts
+                        <div className="flex items-center space-x-2">
+                          <h4 className="font-bold text-dark text-base">{candidate.name}</h4>
+                          <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
+                            candidate.hasViolations ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                          }`}>
+                            {candidate.hasViolations ? `${candidate.violationPhotos.length} Violation Snapshots` : 'Clean Session'}
                           </span>
                         </div>
-                        <div className="text-[11px] text-gray-400 truncate">{photo.candidateEmail}</div>
-                        {photo.candidateCollege && (
-                          <div className="text-[11px] text-gray-500 mt-1 truncate">🏛️ {photo.candidateCollege}</div>
-                        )}
-                        <p className="text-xs text-gray-600 mt-2 line-clamp-2 bg-gray-50 p-2 rounded border border-gray-100">
-                          {photo.description}
-                        </p>
-                      </div>
-
-                      {/* Card Footer */}
-                      <div className="mt-3 pt-2.5 border-t border-gray-100 flex items-center justify-between text-[11px] text-gray-400">
-                        <span className="font-mono">
-                          {photo.timestamp ? new Date(photo.timestamp).toLocaleTimeString() : 'N/A'}
-                        </span>
-                        <button
-                          onClick={() => {
-                            const cand = normalizedResults.find(c => c.candidateId === photo.candidateId);
-                            if (cand) {
-                              setSelectedCandidate(cand);
-                              setActiveModalTab('PHOTOS');
-                            }
-                          }}
-                          className="font-bold text-primary hover:underline flex items-center space-x-1"
-                        >
-                          <span>Candidate</span>
-                          <ExternalLink size={11} />
-                        </button>
+                        <div className="text-xs text-gray-500 mt-0.5 flex flex-wrap items-center gap-x-2">
+                          <span>{candidate.email}</span>
+                          {candidate.college && <span>• 🏛️ {candidate.college}</span>}
+                          <span>• Score: <strong>{candidate.score} / {candidate.maxScore}</strong> ({candidate.percentage}%)</span>
+                        </div>
                       </div>
                     </div>
+
+                    <div className="flex items-center space-x-3">
+                      <button
+                        onClick={() => {
+                          setSelectedCandidate(candidate);
+                          setActiveModalTab(candidate.codingSubmissions?.length > 0 ? 'CODING' : 'ANSWERS');
+                        }}
+                        className="bg-primary hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-sm flex items-center space-x-1.5"
+                      >
+                        <Eye size={14} />
+                        <span>View Dossier & Code</span>
+                      </button>
+                    </div>
                   </div>
-                );
-              })}
+
+                  {/* Candidate Photos Stream */}
+                  <div className="p-5">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                      {/* 1. Registration ID Photo */}
+                      {candidate.photo ? (
+                        <div className="bg-gray-50 rounded-xl border border-gray-200 overflow-hidden shadow-sm flex flex-col group">
+                          <div 
+                            className="relative h-40 bg-gray-900 cursor-pointer overflow-hidden flex items-center justify-center"
+                            onClick={() => openLightbox(candidate.allPhotos, 0)}
+                          >
+                            <img 
+                              src={candidate.photo} 
+                              alt="Identity Verification"
+                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                              loading="lazy"
+                            />
+                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                              <span className="bg-white/90 text-dark px-2.5 py-1 rounded text-xs font-bold flex items-center space-x-1 shadow">
+                                <ZoomIn size={13} />
+                                <span>Enlarge</span>
+                              </span>
+                            </div>
+                            <span className="absolute top-2 left-2 text-[10px] font-bold px-2 py-0.5 rounded bg-blue-600 text-white shadow-sm">
+                              Verified ID Photo
+                            </span>
+                          </div>
+                          <div className="p-3 text-xs flex-1 flex flex-col justify-between">
+                            <div>
+                              <div className="font-bold text-dark text-xs">Registration Webcam Capture</div>
+                              <div className="text-[11px] text-gray-500 mt-0.5">Identity photo verified at exam entry.</div>
+                            </div>
+                            <div className="mt-2 text-[10px] font-mono text-gray-400">
+                              Entry: {candidate.startedAt ? new Date(candidate.startedAt).toLocaleTimeString() : 'N/A'}
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="p-4 bg-gray-50 rounded-xl border border-dashed border-gray-300 flex items-center justify-center text-xs text-gray-400">
+                          No registration photo
+                        </div>
+                      )}
+
+                      {/* 2. Candidate Violation Snapshots */}
+                      {candidate.violationPhotos.map((vPhoto: any, vpIdx: number) => {
+                        const photoGlobalIndex = candidate.allPhotos.findIndex((p: any) => p.id === vPhoto.id);
+
+                        return (
+                          <div 
+                            key={vPhoto.id || vpIdx}
+                            className="bg-red-50/20 rounded-xl border border-red-200 overflow-hidden shadow-sm flex flex-col group"
+                          >
+                            <div 
+                              className="relative h-40 bg-gray-900 cursor-pointer overflow-hidden flex items-center justify-center"
+                              onClick={() => openLightbox(candidate.allPhotos, photoGlobalIndex >= 0 ? photoGlobalIndex : 0)}
+                            >
+                              <img 
+                                src={vPhoto.url} 
+                                alt={vPhoto.title}
+                                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                                loading="lazy"
+                              />
+                              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                <span className="bg-white/90 text-dark px-2.5 py-1 rounded text-xs font-bold flex items-center space-x-1 shadow">
+                                  <ZoomIn size={13} />
+                                  <span>Enlarge</span>
+                                </span>
+                              </div>
+                              <span className={`absolute top-2 left-2 text-[10px] font-bold px-2 py-0.5 rounded border shadow-sm ${getViolationBadgeColor(vPhoto.eventType)}`}>
+                                {vPhoto.title}
+                              </span>
+                            </div>
+                            <div className="p-3 text-xs flex-1 flex flex-col justify-between">
+                              <div>
+                                <div className="font-bold text-dark text-xs">{vPhoto.title}</div>
+                                <div className="text-[11px] text-gray-600 mt-0.5 line-clamp-2">{vPhoto.description}</div>
+                              </div>
+                              <div className="mt-2 text-[10px] font-mono text-red-600 font-bold flex items-center justify-between">
+                                <span>{vPhoto.timestamp ? new Date(vPhoto.timestamp).toLocaleTimeString() : 'Session Capture'}</span>
+                                <span className="text-[10px] text-gray-400">Flag #{vpIdx + 1}</span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+
+                      {/* If no violations, show clean indicator card */}
+                      {!candidate.hasViolations && (
+                        <div className="p-5 bg-emerald-50/60 rounded-xl border border-emerald-200 flex flex-col justify-center items-center text-center col-span-1 sm:col-span-2">
+                          <CheckCircle size={32} className="text-emerald-600 mb-1.5" />
+                          <div className="font-bold text-emerald-800 text-xs">Clean Proctoring Session</div>
+                          <div className="text-[11px] text-emerald-600 mt-0.5">0 integrity violation snapshots recorded during the test.</div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </div>
       )}
 
-      {/* CANDIDATE FULL REPORT MODAL */}
+      {/* CANDIDATE FULL REPORT / VIEW DOSSIER MODAL */}
       {selectedCandidate && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5 animate-fade-in">
           <div className="bg-white rounded-2xl shadow-2xl max-w-6xl w-full max-h-[92vh] flex flex-col overflow-hidden border border-gray-100">
@@ -1125,6 +1165,7 @@ const ResultsView: React.FC<ResultsViewProps> = ({ assessmentId: propId }) => {
                     <span>{selectedCandidate.email}</span>
                     {selectedCandidate.phone && <span>• 📞 {selectedCandidate.phone}</span>}
                     {selectedCandidate.college && <span>• 🏛️ {selectedCandidate.college}</span>}
+                    <span>• Score: <strong className="text-dark">{selectedCandidate.score} / {selectedCandidate.maxScore}</strong> ({selectedCandidate.percentage}%)</span>
                   </div>
                 </div>
               </div>
@@ -1148,41 +1189,46 @@ const ResultsView: React.FC<ResultsViewProps> = ({ assessmentId: propId }) => {
 
             {/* Modal Navigation Tabs */}
             <div className="bg-gray-50 px-6 border-b border-gray-200 flex space-x-1 sm:space-x-3 overflow-x-auto text-xs font-bold">
+              {/* 1. CODING ANSWERS & RUN EVALUATION TAB */}
+              <button 
+                onClick={() => setActiveModalTab('CODING')}
+                className={`py-3 px-3.5 border-b-2 flex items-center space-x-2 transition-colors ${activeModalTab === 'CODING' ? 'border-purple-600 text-purple-700 bg-white' : 'border-transparent text-gray-500 hover:text-dark'}`}
+              >
+                <Code size={15} />
+                <span>Coding Answers & Run ({selectedCandidate.codingSubmissions?.length || 0})</span>
+              </button>
+
+              {/* 2. MCQ & STANDARD QUESTIONS TAB */}
               <button 
                 onClick={() => setActiveModalTab('ANSWERS')}
-                className={`py-3 px-3 border-b-2 flex items-center space-x-2 transition-colors ${activeModalTab === 'ANSWERS' ? 'border-primary text-primary bg-white' : 'border-transparent text-gray-500 hover:text-dark'}`}
+                className={`py-3 px-3.5 border-b-2 flex items-center space-x-2 transition-colors ${activeModalTab === 'ANSWERS' ? 'border-primary text-primary bg-white' : 'border-transparent text-gray-500 hover:text-dark'}`}
               >
                 <FileText size={15} />
                 <span>MCQ & Answers ({selectedCandidate.standardAnswers?.length || 0})</span>
               </button>
 
-              <button 
-                onClick={() => setActiveModalTab('CODING')}
-                className={`py-3 px-3 border-b-2 flex items-center space-x-2 transition-colors ${activeModalTab === 'CODING' ? 'border-purple-600 text-purple-700 bg-white' : 'border-transparent text-gray-500 hover:text-dark'}`}
-              >
-                <Code size={15} />
-                <span>Code Runner & Evaluation ({selectedCandidate.codingSubmissions?.length || 0})</span>
-              </button>
-
+              {/* 3. DEDICATED SEPARATE INTEGRITY PHOTOS TAB */}
               <button 
                 onClick={() => setActiveModalTab('PHOTOS')}
-                className={`py-3 px-3 border-b-2 flex items-center space-x-2 transition-colors ${activeModalTab === 'PHOTOS' ? 'border-purple-600 text-purple-700 bg-white' : 'border-transparent text-gray-500 hover:text-dark'}`}
+                className={`py-3 px-3.5 border-b-2 flex items-center space-x-2 transition-colors ${activeModalTab === 'PHOTOS' ? 'border-red-600 text-red-700 bg-white' : 'border-transparent text-gray-500 hover:text-dark'}`}
               >
                 <Camera size={15} />
                 <span>📷 Integrity Photos ({candidatePhotos.length})</span>
               </button>
 
+              {/* 4. PROCTORING EVENT LOGS */}
               <button 
                 onClick={() => setActiveModalTab('LOGS')}
-                className={`py-3 px-3 border-b-2 flex items-center space-x-2 transition-colors ${activeModalTab === 'LOGS' ? 'border-primary text-primary bg-white' : 'border-transparent text-gray-500 hover:text-dark'}`}
+                className={`py-3 px-3.5 border-b-2 flex items-center space-x-2 transition-colors ${activeModalTab === 'LOGS' ? 'border-primary text-primary bg-white' : 'border-transparent text-gray-500 hover:text-dark'}`}
               >
                 <ShieldAlert size={15} />
-                <span>Proctoring Logs ({selectedCandidate.integrityEventsCount || 0})</span>
+                <span>Event Logs ({selectedCandidate.integrityEventsCount || 0})</span>
               </button>
 
+              {/* 5. CANDIDATE PROFILE */}
               <button 
                 onClick={() => setActiveModalTab('PROFILE')}
-                className={`py-3 px-3 border-b-2 flex items-center space-x-2 transition-colors ${activeModalTab === 'PROFILE' ? 'border-primary text-primary bg-white' : 'border-transparent text-gray-500 hover:text-dark'}`}
+                className={`py-3 px-3.5 border-b-2 flex items-center space-x-2 transition-colors ${activeModalTab === 'PROFILE' ? 'border-primary text-primary bg-white' : 'border-transparent text-gray-500 hover:text-dark'}`}
               >
                 <User size={15} />
                 <span>Candidate Profile & Files</span>
@@ -1192,7 +1238,312 @@ const ResultsView: React.FC<ResultsViewProps> = ({ assessmentId: propId }) => {
             {/* Modal Content Body */}
             <div className="p-6 overflow-y-auto flex-1 space-y-6 bg-white">
 
-              {/* TAB 1: MCQ & WRITTEN ANSWERS */}
+              {/* TAB: CODING ANSWERS WITH RUN & EVALUATE CONSOLE */}
+              {activeModalTab === 'CODING' && (
+                <div className="space-y-6">
+                  {/* Top Score Banner */}
+                  <div className="flex flex-wrap justify-between items-center bg-gradient-to-r from-purple-50 to-indigo-50/50 p-5 rounded-2xl border border-purple-200 gap-4">
+                    <div>
+                      <div className="flex items-center space-x-2">
+                        <Code className="text-purple-600" size={20} />
+                        <h4 className="font-bold text-dark text-base">Coding Submissions & Remote Test Runner</h4>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1">
+                        View candidate source code, run test cases remotely, check stdout/stderr, and automatically allot marks.
+                      </p>
+                    </div>
+                    <div className="flex items-center space-x-4">
+                      <div className="text-right">
+                        <div className="text-xs font-bold text-gray-400 uppercase tracking-wider">Coding Score</div>
+                        <div className="text-2xl font-bold text-purple-700">
+                          {selectedCandidate.codingScore ?? 0} <span className="text-sm font-normal text-gray-500">/ {selectedCandidate.codingMaxScore ?? 0} pts</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {(!selectedCandidate.codingSubmissions || selectedCandidate.codingSubmissions.length === 0) ? (
+                    <div className="text-center py-16 text-gray-400 text-sm bg-gray-50 rounded-2xl border border-gray-200">
+                      <Code size={40} className="mx-auto text-gray-300 mb-2" />
+                      <p className="font-bold text-gray-600">No coding solutions submitted</p>
+                      <p className="text-xs text-gray-400 mt-1">This candidate did not submit code for programming questions.</p>
+                    </div>
+                  ) : (
+                    selectedCandidate.codingSubmissions.map((cs: any, idx: number) => {
+                      const runInfo = singleTestResults[cs.id];
+                      const activeTab = activeTestCaseTabs[cs.id] ?? 0;
+                      const customRunResult = customExecutionResults[cs.id];
+
+                      return (
+                        <div key={cs.id || idx} className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm">
+                          {/* Problem Header Bar */}
+                          <div className="p-4 bg-gray-50 border-b border-gray-200 flex flex-wrap justify-between items-center gap-3">
+                            <div>
+                              <div className="flex items-center space-x-2.5">
+                                <span className="bg-purple-600 text-white text-xs font-bold px-2.5 py-0.5 rounded-lg shadow-sm">
+                                  Problem {idx + 1}
+                                </span>
+                                <h4 className="font-bold text-dark text-base">{cs.questionTitle || 'Coding Question'}</h4>
+                              </div>
+                              <div className="text-xs text-gray-500 mt-1.5 flex flex-wrap items-center gap-3">
+                                <span>Language: <span className="font-mono font-bold text-purple-700 bg-purple-50 px-2 py-0.5 rounded border border-purple-200 uppercase">{cs.language}</span></span>
+                                <span>Status: <strong className="text-emerald-700 font-bold">{cs.status}</strong></span>
+                                {runInfo?.totalTimeMs !== undefined && (
+                                  <span className="text-gray-500 font-mono">⚡ Execution: {runInfo.totalTimeMs}ms</span>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Actions & PROMINENT RUN BUTTON */}
+                            <div className="flex flex-wrap items-center gap-2.5">
+                              {/* PROMINENT RUN & EVALUATE BUTTON */}
+                              <button 
+                                onClick={() => handleEvaluateSingleCoding(cs.id)}
+                                disabled={evaluatingSubmissionId === cs.id || !cs.code}
+                                className="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-md flex items-center space-x-2 disabled:opacity-50 hover:shadow-lg"
+                                title="Run code on remote compiler and evaluate all test cases"
+                              >
+                                <Play size={15} className={evaluatingSubmissionId === cs.id ? "animate-spin" : ""} />
+                                <span>{evaluatingSubmissionId === cs.id ? "Running Tests..." : "▶ Run & Evaluate Code"}</span>
+                              </button>
+
+                              {/* Marks Input */}
+                              <div className="flex items-center space-x-1.5 bg-white px-3 py-1.5 rounded-xl border border-gray-200 shadow-sm">
+                                <span className="text-xs text-gray-500 font-bold">Marks:</span>
+                                <input 
+                                  type="number" 
+                                  className="w-16 px-2 py-1 text-xs font-bold text-center border border-gray-300 rounded-lg focus:border-primary outline-none"
+                                  defaultValue={cs.score ?? 0}
+                                  key={`score-${cs.id}-${cs.score}`}
+                                  onBlur={(e) => handleScoreUpdate(cs.id, true, Number(e.target.value))}
+                                  step="1"
+                                  title="Edit score to update candidate's total marks"
+                                />
+                                <span className="text-xs text-gray-500 font-bold">/ {cs.maxScore}</span>
+                              </div>
+
+                              <button 
+                                onClick={() => handleCopyCode(cs.code, cs.id)}
+                                className="p-2 text-gray-500 hover:text-dark hover:bg-gray-200 rounded-xl transition-colors border border-gray-200 bg-white"
+                                title="Copy code to clipboard"
+                              >
+                                {copiedCodeId === cs.id ? <Check size={16} className="text-emerald-600" /> : <Copy size={16} />}
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Problem Description if provided */}
+                          {cs.questionDescription && (
+                            <div className="p-4 bg-gray-50/60 border-b border-gray-100 text-xs text-gray-700 whitespace-pre-wrap leading-relaxed">
+                              <div className="font-bold text-gray-500 mb-1 text-[10px] uppercase tracking-wider">Problem Statement:</div>
+                              {cs.questionDescription}
+                            </div>
+                          )}
+
+                          {/* IDE Code Viewer */}
+                          <div className="bg-[#0f172a] text-gray-200 font-mono text-xs overflow-hidden border-b border-gray-800">
+                            <div className="bg-[#1e293b] px-4 py-2 flex items-center justify-between border-b border-gray-800 text-[11px] text-gray-400">
+                              <div className="flex items-center space-x-2">
+                                <Terminal size={14} className="text-purple-400" />
+                                <span>solution.{cs.language?.toLowerCase() === 'python' ? 'py' : cs.language?.toLowerCase() === 'java' ? 'java' : 'js'}</span>
+                              </div>
+                              <span>{cs.code ? `${cs.code.split('\n').length} lines` : '0 lines'}</span>
+                            </div>
+
+                            <div className="p-4 overflow-x-auto max-h-[380px] leading-relaxed">
+                              <pre className="whitespace-pre-wrap font-mono">{cs.code || '// No code submitted by candidate'}</pre>
+                            </div>
+                          </div>
+
+                          {/* Interactive Test Cases & Runner Drawer */}
+                          <div className="p-5 bg-gray-50/70">
+                            {/* Summary Banner if executed */}
+                            {runInfo && (
+                              <div className="mb-4 p-3.5 rounded-xl border flex flex-wrap items-center justify-between gap-2 shadow-sm bg-white border-purple-200">
+                                <div className="flex items-center space-x-2">
+                                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-sm ${
+                                    runInfo.passedCount === runInfo.totalCount 
+                                      ? 'bg-emerald-50 text-emerald-600' 
+                                      : 'bg-amber-50 text-amber-600'
+                                  }`}>
+                                    {runInfo.passedCount === runInfo.totalCount ? <CheckCircle size={18} /> : <AlertTriangle size={18} />}
+                                  </div>
+                                  <div>
+                                    <div className="font-bold text-dark text-xs">
+                                      Evaluation: {runInfo.passedCount} of {runInfo.totalCount} Test Cases Passed
+                                    </div>
+                                    <div className="text-[11px] text-gray-500">
+                                      Allotted Marks: <strong>{runInfo.allottedScore} / {runInfo.maxMarks} marks</strong> ({Math.round((runInfo.allottedScore / runInfo.maxMarks) * 100)}%)
+                                    </div>
+                                  </div>
+                                </div>
+                                
+                                {runInfo.totalTimeMs !== undefined && (
+                                  <span className="text-xs text-gray-400 font-mono">
+                                    Total Execution: {runInfo.totalTimeMs}ms
+                                  </span>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Test Cases Tab Switcher */}
+                            <div className="flex flex-wrap items-center gap-2 mb-3">
+                              {(cs.testCases || []).map((tc: any, tcIdx: number) => {
+                                const tr = runInfo?.results?.[tcIdx];
+                                const isPassed = tr?.passed;
+
+                                return (
+                                  <button
+                                    key={tcIdx}
+                                    onClick={() => setActiveTestCaseTabs(prev => ({ ...prev, [cs.id]: tcIdx }))}
+                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center space-x-1.5 transition-all ${
+                                      activeTab === tcIdx
+                                        ? 'bg-purple-600 text-white shadow-sm'
+                                        : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-100'
+                                    }`}
+                                  >
+                                    <span>Case {tcIdx + 1}</span>
+                                    {tr !== undefined && (
+                                      <span className={`w-2 h-2 rounded-full ${isPassed ? 'bg-emerald-400' : 'bg-red-400'}`} />
+                                    )}
+                                  </button>
+                                );
+                              })}
+
+                              {/* Custom Input Tab */}
+                              <button
+                                onClick={() => setActiveTestCaseTabs(prev => ({ ...prev, [cs.id]: 'CUSTOM' }))}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center space-x-1.5 transition-all ${
+                                  activeTab === 'CUSTOM'
+                                    ? 'bg-indigo-600 text-white shadow-sm'
+                                    : 'bg-white text-indigo-700 border border-indigo-200 hover:bg-indigo-50'
+                                }`}
+                              >
+                                <Sliders size={13} />
+                                <span>+ Custom Input</span>
+                              </button>
+                            </div>
+
+                            {/* Active Standard Test Case Content */}
+                            {typeof activeTab === 'number' && cs.testCases?.[activeTab] && (() => {
+                              const tc = cs.testCases[activeTab];
+                              const tr = runInfo?.results?.[activeTab];
+                              const isRun = !!tr;
+
+                              return (
+                                <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-3 shadow-sm">
+                                  {/* Status Banner */}
+                                  <div className="flex items-center justify-between border-b pb-2.5">
+                                    <div className="flex items-center space-x-2">
+                                      <span className="font-bold text-sm text-dark">Test Case {activeTab + 1}</span>
+                                      {tc.isHidden && <span className="bg-gray-100 text-gray-600 text-[10px] px-2 py-0.5 rounded font-bold">Hidden Test</span>}
+                                    </div>
+                                    {isRun ? (
+                                      <span className={`inline-flex items-center text-xs font-bold px-2.5 py-1 rounded-lg ${
+                                        tr.passed 
+                                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' 
+                                          : 'bg-red-50 text-red-700 border border-red-200'
+                                      }`}>
+                                        {tr.passed ? <CheckCircle size={14} className="mr-1.5" /> : <XCircle size={14} className="mr-1.5" />}
+                                        {tr.passed ? 'Passed (Outputs Match)' : 'Failed (Wrong Output)'}
+                                      </span>
+                                    ) : (
+                                      <span className="text-xs text-gray-400 italic">Click "▶ Run & Evaluate Code" to execute</span>
+                                    )}
+                                  </div>
+
+                                  {/* Inputs & Outputs Comparison */}
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                                    <div>
+                                      <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Standard Input:</div>
+                                      <pre className="bg-gray-50 border border-gray-200 p-2.5 rounded-lg font-mono text-[11px] text-gray-800 whitespace-pre-wrap min-h-[48px]">
+                                        {tc.input || '(no stdin)'}
+                                      </pre>
+                                    </div>
+
+                                    <div>
+                                      <div className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider mb-1">Expected Output:</div>
+                                      <pre className="bg-emerald-50/50 border border-emerald-200 p-2.5 rounded-lg font-mono text-[11px] text-emerald-900 whitespace-pre-wrap min-h-[48px]">
+                                        {tc.expectedOutput || '(no output)'}
+                                      </pre>
+                                    </div>
+                                  </div>
+
+                                  {/* Actual Output from Candidate Program */}
+                                  {isRun && (
+                                    <div className="pt-2">
+                                      <div className="flex justify-between items-center mb-1">
+                                        <div className={`text-[10px] font-bold uppercase tracking-wider ${tr.passed ? 'text-emerald-700' : 'text-red-700'}`}>
+                                          Candidate Output:
+                                        </div>
+                                        {tr.executionTimeMs !== undefined && (
+                                          <span className="text-[10px] font-mono text-gray-400">⏱️ {tr.executionTimeMs}ms</span>
+                                        )}
+                                      </div>
+                                      <pre className={`p-3 rounded-lg font-mono text-xs whitespace-pre-wrap border ${
+                                        tr.passed 
+                                          ? 'bg-emerald-50 text-emerald-900 border-emerald-200' 
+                                          : 'bg-red-50 text-red-900 border-red-200'
+                                      }`}>
+                                        {tr.actualOutput || '(no output returned)'}
+                                      </pre>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })()}
+
+                            {/* Active Custom Input Console */}
+                            {activeTab === 'CUSTOM' && (
+                              <div className="bg-white rounded-xl border border-indigo-200 p-4 space-y-4 shadow-sm">
+                                <div className="flex justify-between items-center border-b pb-2.5">
+                                  <div>
+                                    <h5 className="font-bold text-dark text-sm">Custom Stdin Test Runner</h5>
+                                    <p className="text-xs text-gray-500">Provide any custom stdin and test candidate's code on remote compiler.</p>
+                                  </div>
+                                  <button
+                                    onClick={() => handleRunCustomInput(cs.id, cs.language, cs.code)}
+                                    disabled={isRunningCustomInput || !cs.code}
+                                    className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-sm flex items-center space-x-1.5 disabled:opacity-50"
+                                  >
+                                    <Play size={13} className={isRunningCustomInput ? "animate-spin" : ""} />
+                                    <span>{isRunningCustomInput ? "Executing..." : "Run Custom Input"}</span>
+                                  </button>
+                                </div>
+
+                                <div>
+                                  <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Custom Stdin Input:</div>
+                                  <textarea
+                                    rows={3}
+                                    value={customInputMap[cs.id] || ''}
+                                    onChange={(e) => setCustomInputMap(prev => ({ ...prev, [cs.id]: e.target.value }))}
+                                    placeholder="Enter custom input lines here..."
+                                    className="w-full p-2.5 font-mono text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                                  />
+                                </div>
+
+                                {customRunResult && (
+                                  <div>
+                                    <div className="flex justify-between items-center mb-1">
+                                      <div className="text-[10px] font-bold text-dark uppercase tracking-wider">Program Output:</div>
+                                      <span className="text-[10px] font-mono text-gray-400">⏱️ {customRunResult.executionTimeMs}ms</span>
+                                    </div>
+                                    <pre className="bg-[#1e293b] text-gray-100 p-3 rounded-lg font-mono text-xs whitespace-pre-wrap max-h-48 overflow-y-auto">
+                                      {customRunResult.output || '(no output)'}
+                                    </pre>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              )}
+
+              {/* TAB: MCQ & WRITTEN ANSWERS */}
               {activeModalTab === 'ANSWERS' && (
                 <div className="space-y-4">
                   <div className="flex justify-between items-center bg-blue-50/60 p-4 rounded-xl border border-blue-200">
@@ -1307,312 +1658,7 @@ const ResultsView: React.FC<ResultsViewProps> = ({ assessmentId: propId }) => {
                 </div>
               )}
 
-              {/* TAB 2: PROFESSIONAL CODING EVALUATION & TEST RUNNER */}
-              {activeModalTab === 'CODING' && (
-                <div className="space-y-6">
-                  {/* Top Scoring Banner */}
-                  <div className="flex flex-wrap justify-between items-center bg-gradient-to-r from-purple-50 to-indigo-50/50 p-5 rounded-2xl border border-purple-200 gap-4">
-                    <div>
-                      <div className="flex items-center space-x-2">
-                        <Code className="text-purple-600" size={20} />
-                        <h4 className="font-bold text-dark text-base">Coding Evaluation & Interactive Sandbox</h4>
-                      </div>
-                      <p className="text-xs text-gray-500 mt-1">
-                        Run candidate code against standard test cases or inject custom inputs to verify logic, performance, and allot marks.
-                      </p>
-                    </div>
-                    <div className="flex items-center space-x-4">
-                      <div className="text-right">
-                        <div className="text-xs font-bold text-gray-400 uppercase tracking-wider">Coding Total</div>
-                        <div className="text-2xl font-bold text-purple-700">
-                          {selectedCandidate.codingScore ?? 0} <span className="text-sm font-normal text-gray-500">/ {selectedCandidate.codingMaxScore ?? 0} pts</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {(!selectedCandidate.codingSubmissions || selectedCandidate.codingSubmissions.length === 0) ? (
-                    <div className="text-center py-16 text-gray-400 text-sm bg-gray-50 rounded-2xl border border-gray-200">
-                      <Code size={40} className="mx-auto text-gray-300 mb-2" />
-                      <p className="font-bold text-gray-600">No coding submissions found</p>
-                      <p className="text-xs text-gray-400 mt-1">This candidate has not attempted any programming questions.</p>
-                    </div>
-                  ) : (
-                    selectedCandidate.codingSubmissions.map((cs: any, idx: number) => {
-                      const runInfo = singleTestResults[cs.id];
-                      const activeTab = activeTestCaseTabs[cs.id] ?? 0;
-                      const customRunResult = customExecutionResults[cs.id];
-
-                      return (
-                        <div key={cs.id || idx} className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm">
-                          {/* Problem Header Bar */}
-                          <div className="p-4 bg-gray-50 border-b border-gray-200 flex flex-wrap justify-between items-center gap-3">
-                            <div>
-                              <div className="flex items-center space-x-2.5">
-                                <span className="bg-purple-600 text-white text-xs font-bold px-2.5 py-0.5 rounded-lg shadow-sm">
-                                  Problem {idx + 1}
-                                </span>
-                                <h4 className="font-bold text-dark text-base">{cs.questionTitle || 'Coding Question'}</h4>
-                              </div>
-                              <div className="text-xs text-gray-500 mt-1.5 flex flex-wrap items-center gap-3">
-                                <span>Language: <span className="font-mono font-bold text-purple-700 bg-purple-50 px-2 py-0.5 rounded border border-purple-200 uppercase">{cs.language}</span></span>
-                                <span>Status: <strong className="text-emerald-700 font-bold">{cs.status}</strong></span>
-                                {runInfo?.totalTimeMs !== undefined && (
-                                  <span className="text-gray-500 font-mono">⚡ Execution: {runInfo.totalTimeMs}ms</span>
-                                )}
-                              </div>
-                            </div>
-
-                            {/* Actions & Score Allotment */}
-                            <div className="flex flex-wrap items-center gap-2.5">
-                              {/* RUN AND EVALUATE BUTTON */}
-                              <button 
-                                onClick={() => handleEvaluateSingleCoding(cs.id)}
-                                disabled={evaluatingSubmissionId === cs.id || !cs.code}
-                                className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-sm flex items-center space-x-1.5 disabled:opacity-50 hover:shadow"
-                                title="Execute candidate solution on remote compilers and allot marks"
-                              >
-                                <Play size={14} className={evaluatingSubmissionId === cs.id ? "animate-spin" : ""} />
-                                <span>{evaluatingSubmissionId === cs.id ? "Running Tests..." : "Run & Allot Marks"}</span>
-                              </button>
-
-                              {/* Marks Box */}
-                              <div className="flex items-center space-x-1.5 bg-white px-3 py-1.5 rounded-xl border border-gray-200 shadow-sm">
-                                <span className="text-xs text-gray-500 font-bold">Marks:</span>
-                                <input 
-                                  type="number" 
-                                  className="w-16 px-2 py-1 text-xs font-bold text-center border border-gray-300 rounded-lg focus:border-primary outline-none"
-                                  defaultValue={cs.score ?? 0}
-                                  key={`score-${cs.id}-${cs.score}`}
-                                  onBlur={(e) => handleScoreUpdate(cs.id, true, Number(e.target.value))}
-                                  step="1"
-                                  title="Edit score to update candidate's total marks"
-                                />
-                                <span className="text-xs text-gray-500 font-bold">/ {cs.maxScore}</span>
-                              </div>
-
-                              <button 
-                                onClick={() => handleCopyCode(cs.code, cs.id)}
-                                className="p-2 text-gray-500 hover:text-dark hover:bg-gray-200 rounded-xl transition-colors border border-gray-200 bg-white"
-                                title="Copy code to clipboard"
-                              >
-                                {copiedCodeId === cs.id ? <Check size={16} className="text-emerald-600" /> : <Copy size={16} />}
-                              </button>
-                            </div>
-                          </div>
-
-                          {/* Problem Description if provided */}
-                          {cs.questionDescription && (
-                            <div className="p-4 bg-gray-50/60 border-b border-gray-100 text-xs text-gray-700 whitespace-pre-wrap leading-relaxed">
-                              <div className="font-bold text-gray-500 mb-1 text-[10px] uppercase tracking-wider">Problem Statement:</div>
-                              {cs.questionDescription}
-                            </div>
-                          )}
-
-                          {/* IDE Code Viewer */}
-                          <div className="bg-[#0f172a] text-gray-200 font-mono text-xs overflow-hidden border-b border-gray-800">
-                            <div className="bg-[#1e293b] px-4 py-2 flex items-center justify-between border-b border-gray-800 text-[11px] text-gray-400">
-                              <div className="flex items-center space-x-2">
-                                <Terminal size={14} className="text-purple-400" />
-                                <span>solution.{cs.language?.toLowerCase() === 'python' ? 'py' : cs.language?.toLowerCase() === 'java' ? 'java' : 'js'}</span>
-                              </div>
-                              <span>{cs.code ? `${cs.code.split('\n').length} lines` : '0 lines'}</span>
-                            </div>
-
-                            <div className="p-4 overflow-x-auto max-h-[380px] leading-relaxed">
-                              <pre className="whitespace-pre-wrap font-mono">{cs.code || '// No code submitted by candidate'}</pre>
-                            </div>
-                          </div>
-
-                          {/* Interactive Test Cases & Runner Drawer */}
-                          <div className="p-5 bg-gray-50/70">
-                            {/* Summary Banner if executed */}
-                            {runInfo && (
-                              <div className="mb-4 p-3.5 rounded-xl border flex flex-wrap items-center justify-between gap-2 shadow-sm bg-white border-purple-200">
-                                <div className="flex items-center space-x-2">
-                                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-sm ${
-                                    runInfo.passedCount === runInfo.totalCount 
-                                      ? 'bg-emerald-50 text-emerald-600' 
-                                      : 'bg-amber-50 text-amber-600'
-                                  }`}>
-                                    {runInfo.passedCount === runInfo.totalCount ? <CheckCircle size={18} /> : <AlertTriangle size={18} />}
-                                  </div>
-                                  <div>
-                                    <div className="font-bold text-dark text-xs">
-                                      Evaluation Result: {runInfo.passedCount} of {runInfo.totalCount} Test Cases Passed
-                                    </div>
-                                    <div className="text-[11px] text-gray-500">
-                                      Calculated Score: <strong>{runInfo.allottedScore} / {runInfo.maxMarks} marks</strong> ({Math.round((runInfo.allottedScore / runInfo.maxMarks) * 100)}%)
-                                    </div>
-                                  </div>
-                                </div>
-                                
-                                {runInfo.totalTimeMs !== undefined && (
-                                  <span className="text-xs text-gray-400 font-mono">
-                                    Total Runtime: {runInfo.totalTimeMs}ms
-                                  </span>
-                                )}
-                              </div>
-                            )}
-
-                            {/* Test Cases Tab Switcher (Case 1, Case 2... + Custom Input) */}
-                            <div className="flex flex-wrap items-center gap-2 mb-3">
-                              {(cs.testCases || []).map((tc: any, tcIdx: number) => {
-                                const tr = runInfo?.results?.[tcIdx];
-                                const isPassed = tr?.passed;
-
-                                return (
-                                  <button
-                                    key={tcIdx}
-                                    onClick={() => setActiveTestCaseTabs(prev => ({ ...prev, [cs.id]: tcIdx }))}
-                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center space-x-1.5 transition-all ${
-                                      activeTab === tcIdx
-                                        ? 'bg-purple-600 text-white shadow-sm'
-                                        : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-100'
-                                    }`}
-                                  >
-                                    <span>Case {tcIdx + 1}</span>
-                                    {tr !== undefined && (
-                                      <span className={`w-2 h-2 rounded-full ${isPassed ? 'bg-emerald-400' : 'bg-red-400'}`} />
-                                    )}
-                                  </button>
-                                );
-                              })}
-
-                              {/* Custom Input Tab */}
-                              <button
-                                onClick={() => setActiveTestCaseTabs(prev => ({ ...prev, [cs.id]: 'CUSTOM' }))}
-                                className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center space-x-1.5 transition-all ${
-                                  activeTab === 'CUSTOM'
-                                    ? 'bg-indigo-600 text-white shadow-sm'
-                                    : 'bg-white text-indigo-700 border border-indigo-200 hover:bg-indigo-50'
-                                }`}
-                              >
-                                <Sliders size={13} />
-                                <span>+ Custom Stdin</span>
-                              </button>
-                            </div>
-
-                            {/* Active Standard Test Case Content */}
-                            {typeof activeTab === 'number' && cs.testCases?.[activeTab] && (() => {
-                              const tc = cs.testCases[activeTab];
-                              const tr = runInfo?.results?.[activeTab];
-                              const isRun = !!tr;
-
-                              return (
-                                <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-3 shadow-sm">
-                                  {/* Status Banner */}
-                                  <div className="flex items-center justify-between border-b pb-2.5">
-                                    <div className="flex items-center space-x-2">
-                                      <span className="font-bold text-sm text-dark">Test Case {activeTab + 1}</span>
-                                      {tc.isHidden && <span className="bg-gray-100 text-gray-600 text-[10px] px-2 py-0.5 rounded font-bold">Hidden Test</span>}
-                                    </div>
-                                    {isRun ? (
-                                      <span className={`inline-flex items-center text-xs font-bold px-2.5 py-1 rounded-lg ${
-                                        tr.passed 
-                                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' 
-                                          : 'bg-red-50 text-red-700 border border-red-200'
-                                      }`}>
-                                        {tr.passed ? <CheckCircle size={14} className="mr-1.5" /> : <XCircle size={14} className="mr-1.5" />}
-                                        {tr.passed ? 'Passed (Outputs Match)' : 'Failed (Wrong Output)'}
-                                      </span>
-                                    ) : (
-                                      <span className="text-xs text-gray-400 italic">Click "Run & Allot Marks" to execute</span>
-                                    )}
-                                  </div>
-
-                                  {/* Test Case Inputs & Outputs Comparison */}
-                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
-                                    <div>
-                                      <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Standard Input:</div>
-                                      <pre className="bg-gray-50 border border-gray-200 p-2.5 rounded-lg font-mono text-[11px] text-gray-800 whitespace-pre-wrap min-h-[48px]">
-                                        {tc.input || '(no stdin)'}
-                                      </pre>
-                                    </div>
-
-                                    <div>
-                                      <div className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider mb-1">Expected Output:</div>
-                                      <pre className="bg-emerald-50/50 border border-emerald-200 p-2.5 rounded-lg font-mono text-[11px] text-emerald-900 whitespace-pre-wrap min-h-[48px]">
-                                        {tc.expectedOutput || '(no output)'}
-                                      </pre>
-                                    </div>
-                                  </div>
-
-                                  {/* Actual Output from Candidate Program */}
-                                  {isRun && (
-                                    <div className="pt-2">
-                                      <div className="flex justify-between items-center mb-1">
-                                        <div className={`text-[10px] font-bold uppercase tracking-wider ${tr.passed ? 'text-emerald-700' : 'text-red-700'}`}>
-                                          Candidate Program Output:
-                                        </div>
-                                        {tr.executionTimeMs !== undefined && (
-                                          <span className="text-[10px] font-mono text-gray-400">⏱️ {tr.executionTimeMs}ms</span>
-                                        )}
-                                      </div>
-                                      <pre className={`p-3 rounded-lg font-mono text-xs whitespace-pre-wrap border ${
-                                        tr.passed 
-                                          ? 'bg-emerald-50 text-emerald-900 border-emerald-200' 
-                                          : 'bg-red-50 text-red-900 border-red-200'
-                                      }`}>
-                                        {tr.actualOutput || '(no output returned)'}
-                                      </pre>
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })()}
-
-                            {/* Active Custom Input Console */}
-                            {activeTab === 'CUSTOM' && (
-                              <div className="bg-white rounded-xl border border-indigo-200 p-4 space-y-4 shadow-sm">
-                                <div className="flex justify-between items-center border-b pb-2.5">
-                                  <div>
-                                    <h5 className="font-bold text-dark text-sm">Custom Test Runner</h5>
-                                    <p className="text-xs text-gray-500">Provide any custom stdin and test candidate's code on remote compiler.</p>
-                                  </div>
-                                  <button
-                                    onClick={() => handleRunCustomInput(cs.id, cs.language, cs.code)}
-                                    disabled={isRunningCustomInput || !cs.code}
-                                    className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-sm flex items-center space-x-1.5 disabled:opacity-50"
-                                  >
-                                    <Play size={13} className={isRunningCustomInput ? "animate-spin" : ""} />
-                                    <span>{isRunningCustomInput ? "Executing..." : "Run Custom Input"}</span>
-                                  </button>
-                                </div>
-
-                                <div>
-                                  <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Custom Stdin Input:</div>
-                                  <textarea
-                                    rows={3}
-                                    value={customInputMap[cs.id] || ''}
-                                    onChange={(e) => setCustomInputMap(prev => ({ ...prev, [cs.id]: e.target.value }))}
-                                    placeholder="Enter custom input lines here..."
-                                    className="w-full p-2.5 font-mono text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-                                  />
-                                </div>
-
-                                {customRunResult && (
-                                  <div>
-                                    <div className="flex justify-between items-center mb-1">
-                                      <div className="text-[10px] font-bold text-dark uppercase tracking-wider">Program Output:</div>
-                                      <span className="text-[10px] font-mono text-gray-400">⏱️ {customRunResult.executionTimeMs}ms</span>
-                                    </div>
-                                    <pre className="bg-[#1e293b] text-gray-100 p-3 rounded-lg font-mono text-xs whitespace-pre-wrap max-h-48 overflow-y-auto">
-                                      {customRunResult.output || '(no output)'}
-                                    </pre>
-                                  </div>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-              )}
-
-              {/* TAB 3: DEDICATED SEPARATE INTEGRITY PHOTOS GALLERY TAB */}
+              {/* TAB: CANDIDATE-WISE INTEGRITY PHOTOS TAB */}
               {activeModalTab === 'PHOTOS' && (
                 <div className="space-y-6">
                   {/* Top Stats Banner */}
@@ -1620,10 +1666,10 @@ const ResultsView: React.FC<ResultsViewProps> = ({ assessmentId: propId }) => {
                     <div>
                       <h4 className="font-bold text-dark text-base flex items-center space-x-2">
                         <Camera className="text-purple-600" size={20} />
-                        <span>Candidate Proctoring & Webcam Photo Stream</span>
+                        <span>Candidate Integrity Flags & Webcam Photos</span>
                       </h4>
                       <p className="text-xs text-gray-500 mt-1">
-                        Review all identity verification captures and violation screenshots recorded during the examination session.
+                        Examine all identity verification captures and violation screenshots recorded for {selectedCandidate.name}.
                       </p>
                     </div>
                     <div className="flex items-center space-x-3">
@@ -1694,7 +1740,7 @@ const ResultsView: React.FC<ResultsViewProps> = ({ assessmentId: propId }) => {
                 </div>
               )}
 
-              {/* TAB 4: DETAILED PROCTORING AUDIT LOGS */}
+              {/* TAB: PROCTORING AUDIT LOGS */}
               {activeModalTab === 'LOGS' && (
                 <div className="space-y-4">
                   {selectedCandidate.integrityEvents?.length > 0 ? (
@@ -1748,7 +1794,7 @@ const ResultsView: React.FC<ResultsViewProps> = ({ assessmentId: propId }) => {
                 </div>
               )}
 
-              {/* TAB 5: CANDIDATE PROFILE & FILES */}
+              {/* TAB: CANDIDATE PROFILE & FILES */}
               {activeModalTab === 'PROFILE' && (
                 <div className="space-y-6">
                   <div className="border border-gray-200 rounded-xl p-6 bg-gray-50/50">
