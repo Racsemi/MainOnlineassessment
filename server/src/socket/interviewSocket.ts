@@ -44,6 +44,23 @@ export interface InterviewEvaluation {
   submittedAt: number;
 }
 
+export interface ChatMessage {
+  id: string;
+  senderId: string;
+  senderName: string;
+  senderRole: 'ADMIN' | 'CANDIDATE';
+  text: string;
+  timestamp: number;
+}
+
+export interface InterviewFeatures {
+  codingEnabled: boolean; // default false: pure video conference until host enables
+  screenShareAllowed: boolean; // host permission toggle
+  chatAllowed: boolean; // host chat toggle
+  candidateAudioAllowed: boolean; // host mic toggle
+  candidateVideoAllowed: boolean; // host cam toggle
+}
+
 export interface InterviewSessionState {
   sessionId: string;
   title?: string;
@@ -51,6 +68,8 @@ export interface InterviewSessionState {
   queue: CandidateQueueItem[];
   activeCandidate: CandidateQueueItem | null;
   currentProblem: InterviewProblem | null;
+  features: InterviewFeatures;
+  chatMessages: ChatMessage[];
   editorState: {
     code: string;
     language: string;
@@ -72,6 +91,14 @@ function getOrCreateSession(sessionId: string): InterviewSessionState {
       queue: [],
       activeCandidate: null,
       currentProblem: null,
+      features: {
+        codingEnabled: false, // Default is pure video call (Zoom/Teams style)
+        screenShareAllowed: true,
+        chatAllowed: true,
+        candidateAudioAllowed: true,
+        candidateVideoAllowed: true,
+      },
+      chatMessages: [],
       editorState: {
         code: `// Welcome to the Live Technical Interview\n// Write your solution below\n\nfunction solution() {\n  // Type your code here\n  console.log("Hello from Racsemi Live Interview!");\n}\n\nsolution();\n`,
         language: 'javascript',
@@ -83,6 +110,7 @@ function getOrCreateSession(sessionId: string): InterviewSessionState {
   }
   return sessions.get(sessionId)!;
 }
+
 
 /**
  * Execute arbitrary code for live interview running
@@ -175,9 +203,12 @@ export function registerInterviewSocket(io: SocketIOServer) {
           queue: session.queue,
           activeCandidate: session.activeCandidate,
           currentProblem: session.currentProblem,
+          features: session.features,
+          chatMessages: session.chatMessages,
           editorState: session.editorState,
           evaluations: session.evaluations,
         });
+
       } else {
         // Candidate joins queue
         const cid = candidateData?.id || `cand-${Date.now().toString(36)}`;
@@ -255,9 +286,12 @@ export function registerInterviewSocket(io: SocketIOServer) {
       interviewNamespace.to(target.socketId).emit('interview:admitted', {
         sessionId: data.sessionId,
         adminSocketId: session.adminSocketId,
+        features: session.features,
+        chatMessages: session.chatMessages,
         editorState: session.editorState,
         currentProblem: session.currentProblem,
       });
+
 
       // Notify admin
       socket.emit('interview:candidate-admitted', {
@@ -437,6 +471,70 @@ export function registerInterviewSocket(io: SocketIOServer) {
       session.evaluations[data.evaluation.candidateId] = data.evaluation;
       socket.emit('interview:evaluation-saved', { success: true, candidateId: data.evaluation.candidateId });
     });
+
+    // --- 8. HOST PERMISSION CONTROLS (Zoom/Teams style) ---
+    socket.on('host:update-permissions', (data: {
+      sessionId: string;
+      permissions: Partial<InterviewFeatures>;
+    }) => {
+      const session = getOrCreateSession(data.sessionId);
+      if (session.adminSocketId !== socket.id) return;
+
+      session.features = { ...session.features, ...data.permissions };
+      console.log(`[Interview] Host updated permissions for session ${data.sessionId}:`, session.features);
+
+      // Broadcast permissions update to both interviewer and candidate
+      interviewNamespace.to(data.sessionId).emit('host:permissions-updated', {
+        features: session.features,
+      });
+    });
+
+    // Force Mute candidate (Host control)
+    socket.on('host:force-mute-candidate', (data: { sessionId: string; targetSocketId: string }) => {
+      const session = getOrCreateSession(data.sessionId);
+      if (session.adminSocketId !== socket.id) return;
+
+      interviewNamespace.to(data.targetSocketId).emit('host:forced-mute');
+    });
+
+    // --- 9. IN-MEETING REAL-TIME CHAT ---
+    socket.on('chat:send', (data: {
+      sessionId: string;
+      text: string;
+      senderName?: string;
+    }) => {
+      const session = getOrCreateSession(data.sessionId);
+      if (!session.features.chatAllowed && currentUserRole !== 'ADMIN') {
+        return socket.emit('error', { message: 'Chat is currently disabled by host' });
+      }
+
+      const newMsg: ChatMessage = {
+        id: `msg-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+        senderId: socket.id,
+        senderName: data.senderName || (currentUserRole === 'ADMIN' ? 'Interviewer (Host)' : candidateRecord?.name || 'Candidate'),
+        senderRole: currentUserRole || 'CANDIDATE',
+        text: data.text.trim(),
+        timestamp: Date.now(),
+      };
+
+      session.chatMessages.push(newMsg);
+      interviewNamespace.to(data.sessionId).emit('chat:new-message', newMsg);
+    });
+
+    // --- 10. REACTIONS / HAND RAISE ---
+    socket.on('meeting:reaction', (data: {
+      sessionId: string;
+      reaction: string;
+      senderName?: string;
+    }) => {
+      interviewNamespace.to(data.sessionId).emit('meeting:reaction-received', {
+        senderId: socket.id,
+        senderName: data.senderName || (currentUserRole === 'ADMIN' ? 'Host' : candidateRecord?.name || 'Candidate'),
+        reaction: data.reaction,
+        timestamp: Date.now(),
+      });
+    });
+
 
     // --- 8. DISCONNECT HANDLING ---
     socket.on('disconnect', () => {
