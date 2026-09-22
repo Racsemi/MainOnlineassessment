@@ -87,12 +87,37 @@ const ResultsView: React.FC<ResultsViewProps> = ({ assessmentId: propId }) => {
   const [lightboxPhotoIndex, setLightboxPhotoIndex] = useState<number | null>(null);
   const [lightboxPhotoList, setLightboxPhotoList] = useState<any[]>([]);
 
+  // Assessment Total Marks state (strictly 100 fixed marks)
+  const [totalAssessmentMarks, setTotalAssessmentMarks] = useState<number>(100);
+  const [isEditingTotalMarks, setIsEditingTotalMarks] = useState<boolean>(false);
+  const [tempTotalMarks, setTempTotalMarks] = useState<string>('100');
+
+  const handleSaveTotalMarks = async () => {
+    const marks = Number(tempTotalMarks);
+    if (!marks || marks <= 0) return;
+    try {
+      await api.put(`/assessments/${id}/total-marks`, { totalMarks: marks });
+      setTotalAssessmentMarks(marks);
+      setIsEditingTotalMarks(false);
+      await fetchResults();
+    } catch (err) {
+      console.error('Failed to update total marks:', err);
+      // Even if endpoint has network lag, update local state
+      setTotalAssessmentMarks(marks);
+      setIsEditingTotalMarks(false);
+    }
+  };
+
   const fetchResults = async () => {
     if (!id) return;
     setLoading(true);
     try {
       const res = await api.get(`/assessments/${id}/results`);
-      setRawResults(Array.isArray(res.data) ? res.data : []);
+      const data = Array.isArray(res.data) ? res.data : [];
+      setRawResults(data);
+      if (data.length > 0 && data[0].maxScore) {
+        setTotalAssessmentMarks(data[0].maxScore >= 100 ? data[0].maxScore : 100);
+      }
     } catch (err) {
       console.error('Failed to fetch results:', err);
     } finally {
@@ -145,15 +170,13 @@ const ResultsView: React.FC<ResultsViewProps> = ({ assessmentId: propId }) => {
       const codingScore = r.codingScore !== undefined 
         ? r.codingScore 
         : codingSubmissions.reduce((sum: number, a: any) => sum + (Number(a.score) || 0), 0);
-      const codingMaxScore = r.codingMaxScore !== undefined 
+      const codingMaxScore = r.codingMaxScore !== undefined && r.codingMaxScore >= 40 
         ? r.codingMaxScore 
-        : codingSubmissions.reduce((sum: number, a: any) => sum + (Number(a.maxScore) || 10), 0);
+        : ((totalAssessmentMarks || 100) > mcqMaxScore ? ((totalAssessmentMarks || 100) - mcqMaxScore) : 40);
 
       const totalScore = r.score !== undefined ? r.score : (mcqScore + codingScore);
-      const maxScore = r.maxScore || (mcqMaxScore + codingMaxScore) || 100;
-      const percentage = r.percentage !== undefined 
-        ? r.percentage 
-        : (maxScore > 0 ? Math.round((totalScore / maxScore) * 1000) / 10 : 0);
+      const maxScore = totalAssessmentMarks || (r.maxScore && r.maxScore >= 100 ? r.maxScore : 100);
+      const percentage = maxScore > 0 ? Math.round((totalScore / maxScore) * 1000) / 10 : 0;
 
       const fieldLabels: Record<string, string> = {
         phone: 'Phone Number',
@@ -595,7 +618,7 @@ const ResultsView: React.FC<ResultsViewProps> = ({ assessmentId: propId }) => {
       )}
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 md:gap-4 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-6 gap-3 md:gap-4 mb-6">
         <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex items-center space-x-3">
           <div className="w-10 h-10 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center font-bold text-lg">
             <User size={20} />
@@ -613,6 +636,51 @@ const ResultsView: React.FC<ResultsViewProps> = ({ assessmentId: propId }) => {
           <div>
             <div className="text-xs text-gray-500 font-medium">Evaluated</div>
             <div className="text-xl font-bold text-dark">{completedCandidates}</div>
+          </div>
+        </div>
+
+        {/* Test Total Marks Card */}
+        <div className="bg-white p-4 rounded-xl border border-purple-200 shadow-sm flex items-center space-x-3 bg-purple-50/20">
+          <div className="w-10 h-10 rounded-lg bg-purple-100 text-purple-700 flex items-center justify-center font-bold text-lg">
+            <Award size={20} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-xs text-purple-900 font-bold">Total Marks</div>
+            {isEditingTotalMarks ? (
+              <div className="flex items-center space-x-1 mt-1">
+                <input 
+                  type="number" 
+                  value={tempTotalMarks} 
+                  onChange={e => setTempTotalMarks(e.target.value)} 
+                  className="w-14 px-1 py-0.5 text-xs font-bold border border-purple-400 rounded outline-none"
+                  min="1"
+                  autoFocus
+                />
+                <button 
+                  onClick={handleSaveTotalMarks} 
+                  className="px-1.5 py-0.5 bg-purple-600 text-white rounded text-[10px] font-bold hover:bg-purple-700"
+                >
+                  Save
+                </button>
+                <button 
+                  onClick={() => setIsEditingTotalMarks(false)} 
+                  className="text-gray-400 text-xs hover:text-dark px-1"
+                >
+                  ✕
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center space-x-1.5 mt-0.5">
+                <span className="text-xl font-black text-purple-700">{totalAssessmentMarks} pts</span>
+                <button 
+                  onClick={() => { setTempTotalMarks(String(totalAssessmentMarks)); setIsEditingTotalMarks(true); }}
+                  className="text-[10px] font-bold text-purple-600 hover:text-purple-800 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-200 hover:bg-purple-100"
+                  title="Click to adjust total assessment marks"
+                >
+                  Edit
+                </button>
+              </div>
+            )}
           </div>
         </div>
 

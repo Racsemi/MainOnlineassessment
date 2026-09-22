@@ -11,7 +11,8 @@ import {
   updateResultStatus,
   updateAnswerScore,
   evaluateAllAssessmentCodingSubmissions,
-  evaluateSingleCodingSubmission
+  evaluateSingleCodingSubmission,
+  updateAssessmentTotalMarks
 } from '../controllers/assessment.controller';
 
 const router = Router();
@@ -26,6 +27,7 @@ router.post('/', createAssessment);
 router.get('/', getAssessments);
 router.get('/:id', getAssessmentById);
 router.get('/:id/results', getAssessmentResults);
+router.put('/:id/total-marks', updateAssessmentTotalMarks);
 router.post('/:id/evaluate-coding', evaluateAllAssessmentCodingSubmissions);
 router.post('/:id/results/coding/:submissionId/evaluate', evaluateSingleCodingSubmission);
 router.put('/:id/results/:resultId/status', updateResultStatus);

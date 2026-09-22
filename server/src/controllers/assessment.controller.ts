@@ -183,8 +183,29 @@ export const getAssessmentResults = async (req: Request, res: Response) => {
 
     // Fixed total marks configured for the assessment
     const fixedMcqMaxScore = allAssessmentQuestions.reduce((sum, q) => sum + (Number(q.marks) || 0), 0);
-    const fixedCodingMaxScore = allAssessmentCoding.reduce((sum, cq) => sum + (Number(cq.marks) || 10), 0);
-    const fixedAssessmentTotalMarks = fixedMcqMaxScore + fixedCodingMaxScore;
+    let fixedCodingMaxScore = allAssessmentCoding.reduce((sum, cq) => sum + (Number(cq.marks) || 10), 0);
+    let fixedAssessmentTotalMarks = fixedMcqMaxScore + fixedCodingMaxScore;
+
+    // Target assessment total marks: 100 (or custom from query)
+    const targetTotalMarks = Number(req.query.totalMarks) || 100;
+
+    // If assessment questions sum to less than targetTotalMarks (e.g. 60 MCQ + 20 coding = 80),
+    // allocate the remaining marks to the coding questions (e.g. 40 marks across coding questions)
+    if (fixedAssessmentTotalMarks < targetTotalMarks && allAssessmentCoding.length > 0) {
+      const remainingCodingMarks = Math.max(0, targetTotalMarks - fixedMcqMaxScore);
+      const marksPerCoding = Math.round(remainingCodingMarks / allAssessmentCoding.length);
+      for (const cq of allAssessmentCoding) {
+        cq.marks = marksPerCoding;
+        prisma.codingQuestion.update({
+          where: { id: cq.id },
+          data: { marks: marksPerCoding }
+        }).catch(() => {});
+      }
+      fixedCodingMaxScore = remainingCodingMarks;
+      fixedAssessmentTotalMarks = fixedMcqMaxScore + fixedCodingMaxScore;
+    }
+
+    const finalTotalMarks = fixedAssessmentTotalMarks > 0 ? Math.max(fixedAssessmentTotalMarks, targetTotalMarks) : targetTotalMarks;
 
     // Fetch all candidates belonging to this assessment to guarantee no candidate or result is missed
     const candidates = await prisma.candidate.findMany({
@@ -397,11 +418,11 @@ export const getAssessmentResults = async (req: Request, res: Response) => {
       
       const mcqMaxScore = fixedMcqMaxScore > 0 ? fixedMcqMaxScore : attendedMcqMax;
       const codingMaxScore = fixedCodingMaxScore > 0 ? fixedCodingMaxScore : attendedCodingMax;
-      const maxScore = fixedAssessmentTotalMarks > 0 ? fixedAssessmentTotalMarks : (mcqMaxScore + codingMaxScore) || 100;
+      const maxScore = finalTotalMarks;
       const percentage = maxScore > 0 ? Math.round((totalScore / maxScore) * 1000) / 10 : 0;
 
-      // Sync updated maxScore and totalScore to database if it was previously saved with attended-only maxScore
-      if (result && (result.maxScore !== maxScore || Math.abs(result.totalScore - totalScore) > 0.05)) {
+      // Sync updated maxScore and totalScore to database so DB reflects 100 total marks and correct percentage
+      if (result && (result.maxScore !== maxScore || Math.abs(result.totalScore - totalScore) > 0.05 || Math.abs(result.percentage - percentage) > 0.05)) {
         prisma.assessmentResult.update({
           where: { id: result.id },
           data: { maxScore, totalScore, percentage }
@@ -825,7 +846,7 @@ export const evaluateSingleCodingSubmission = async (req: Request, res: Response
         const fixedMcqMax = assessmentMcqs.reduce((sum, q) => sum + (Number(q.marks) || 0), 0);
         const fixedCodingMax = assessmentCoding.reduce((sum, cq) => sum + (Number(cq.marks) || 10), 0);
         const fixedTotal = fixedMcqMax + fixedCodingMax;
-        const currentMax = fixedTotal > 0 ? fixedTotal : (result.maxScore || 100);
+        const currentMax = fixedTotal >= 100 ? fixedTotal : 100;
         const percentage = currentMax > 0 ? Math.round((newTotal / currentMax) * 1000) / 10 : 0;
 
         updatedResult = await prisma.assessmentResult.update({
@@ -850,6 +871,34 @@ export const evaluateSingleCodingSubmission = async (req: Request, res: Response
   } catch (error) {
     console.error('Error evaluating single coding submission:', error);
     res.status(500).json({ error: 'Failed to evaluate coding submission' });
+  }
+};
+
+/**
+ * Updates the fixed total marks for an assessment and recalculates percentages for all candidates.
+ */
+export const updateAssessmentTotalMarks = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { totalMarks } = req.body;
+    const marks = Number(totalMarks) || 100;
+
+    const results = await prisma.assessmentResult.findMany({
+      where: { assessmentId: id }
+    });
+
+    for (const r of results) {
+      const percentage = marks > 0 ? Math.round((r.totalScore / marks) * 1000) / 10 : 0;
+      await prisma.assessmentResult.update({
+        where: { id: r.id },
+        data: { maxScore: marks, percentage }
+      });
+    }
+
+    res.json({ success: true, totalMarks: marks, updatedCount: results.length });
+  } catch (error) {
+    console.error('Error updating assessment total marks:', error);
+    res.status(500).json({ error: 'Failed to update total marks' });
   }
 };
 

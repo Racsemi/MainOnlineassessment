@@ -286,7 +286,7 @@ export const submitAssessment = async (req: Request, res: Response) => {
       console.error('Error fetching fixed assessment max marks:', maxErr);
     }
 
-    const finalMaxScore = fixedMaxScore > 0 ? fixedMaxScore : (maxScore || 100);
+    const finalMaxScore = fixedMaxScore >= 100 ? fixedMaxScore : 100;
     const percentage = finalMaxScore > 0 ? Math.max(0, Math.round((totalScore / finalMaxScore) * 1000) / 10) : 0;
 
     await prisma.assessmentResult.upsert({
